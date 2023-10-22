@@ -225,6 +225,21 @@ void Error_Handler(void);
 #define ISM43362_DRDY_EXTI1_GPIO_Port GPIOE
 /* USER CODE BEGIN Private defines */
 
+#define STANDBY_MODE 0
+#define BATTLE_NO_LAST_OF_EE2028_MODE 1
+#define BATTLE_LAST_OF_EE2028_MODE 2
+#define DEAD_MODE 3
+
+#define LED_ALWAYS_ON 0
+#define LED_1HZ 1000
+#define LED_2HZ 500
+#define LED_10HZ 100
+
+#define UART_BUFFER_SIZE 64
+
+#define BOOL_SET 1
+#define BOOL_CLR 0
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

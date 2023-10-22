@@ -1,0 +1,9 @@
+../Core/Src/main.c:65:5:main	8	static
+../Core/Src/main.c:110:13:standby_mode	16	static
+../Core/Src/main.c:137:13:battle_no_last_of_ee2028_mode	32	static
+../Core/Src/main.c:191:13:battle_last_of_ee2028_mode	16	static
+../Core/Src/main.c:210:13:dead_mode	16	static
+../Core/Src/main.c:228:13:UART1_Init	32	static
+../Core/Src/main.c:261:6:HAL_GPIO_EXTI_Callback	16	static
+../Core/Src/main.c:274:13:button_press	8	static
+../Core/Src/main.c:307:13:led_blink	16	static
