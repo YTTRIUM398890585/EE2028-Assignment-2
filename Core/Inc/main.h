@@ -235,10 +235,12 @@ void Error_Handler(void);
 #define LED_2HZ 500
 #define LED_10HZ 100
 
-#define UART_BUFFER_SIZE 64
+#define UART_BUFFER_SIZE 128
 
 #define BOOL_SET 1
 #define BOOL_CLR 0
+
+#define D6D_SRC_UPSIDEDOWN 0x10
 
 /* USER CODE END Private defines */
 
