@@ -16,12 +16,13 @@
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01.h"
 
 // Sensors
-#include "../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h"
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_gyro.h"
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_hsensor.h"
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_magneto.h"
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_psensor.h"
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_tsensor.h"
+#include "../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h"
+
 
 /* Variables -----------------------------------------------------------------*/
 /* States
@@ -63,7 +64,6 @@ float temp_data;
 
 volatile bool flag_6d = BOOL_CLR;
 
-
 /* Function Prototype --------------------------------------------------------*/
 extern void
 initialise_monitor_handles(void); // for semi-hosting support (printf)
@@ -95,14 +95,13 @@ int main(void)
     BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
     BSP_LED_Init(LED2);
 
-    // BSP_ACCELERO_Init();
-    
+    //     BSP_ACCELERO_Init();
+    LSM6DSL_AccInit_6D_EXTI();
     BSP_GYRO_Init();
     BSP_MAGNETO_Init();
     BSP_HSENSOR_Init();
     BSP_PSENSOR_Init();
     BSP_TSENSOR_Init();
-    LSM6DSL_AccInit_6D_EXTI();
 
     // print Entering STANDBY MODE when going to STANDBY_MODE
     sprintf(uart_buffer, "Entering STANDBY MODE\r\n");
@@ -140,7 +139,7 @@ static void standby_mode(uint8_t* p_state)
     // in STANDBY_MODE, double press to enter BATTLE_NO_LAST_OF_EE2028_MODE
     if (double_press) {
         uint8_t d6d_src = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_D6D_SRC);
-        
+
         // if upside down, go to BATTLE_LAST_OF_EE2028_MODE else BATTLE_NO_LAST_OF_EE2028_MODE
         if (d6d_src & D6D_SRC_UPSIDEDOWN) {
             *p_state = BATTLE_LAST_OF_EE2028_MODE;
@@ -279,7 +278,7 @@ static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
     if (flag_6d == BOOL_SET) {
         flag_6d = 0;
         uint8_t d6d_src = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_D6D_SRC);
-        
+
         // if upside down, go to BATTLE_LAST_OF_EE2028_MODE
         if (d6d_src & D6D_SRC_UPSIDEDOWN) {
             *p_state = BATTLE_LAST_OF_EE2028_MODE;
@@ -321,7 +320,7 @@ static void battle_last_of_ee2028_mode(uint8_t* p_state)
             if (!(d6d_src & D6D_SRC_UPSIDEDOWN)) {
                 *p_state = BATTLE_NO_LAST_OF_EE2028_MODE;
                 sprintf(uart_buffer, "Rescued :D \r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF); 
+                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
             }
 
             double_press = BOOL_CLR;
@@ -397,7 +396,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
     // 6D from LSM6DSL
     if (GPIO_Pin == GPIO_PIN_11) {
-    	flag_6d = BOOL_SET;
+        flag_6d = BOOL_SET;
     }
 }
 
@@ -542,7 +541,7 @@ static float read_temp(void)
  * @retval None
  */
 static void LSM6DSL_AccInit_6D_EXTI(void)
-{   
+{
     // configuring the GPIO for 6D EXTI from LSM6DSL at PD11
     GPIO_InitTypeDef gpio_init_structure;
 
@@ -552,37 +551,39 @@ static void LSM6DSL_AccInit_6D_EXTI(void)
     gpio_init_structure.Pin = GPIO_PIN_11;
     gpio_init_structure.Pull = GPIO_PULLDOWN;
     gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-    
+
     gpio_init_structure.Mode = GPIO_MODE_IT_RISING; // interupt is active high
-    
+
     HAL_GPIO_Init(GPIOD, &gpio_init_structure);
-    
+
     /* Enable and set EXTI Interrupt priority */
     HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0x0F, 0x00);
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
-    
 
     // configuring the LSM6DSL for 6D EXTI through INT1
+    // must init this for I2C
+    SENSOR_IO_Init();
+
     // write 0x60 to 0x10 CTRL1_XL to set ODR_XL = 416 Hz and turn on device, FS_XL = ±2 g
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL1_XL, 0x60);
 
-//    uint8_t debug_please_work;
-//
-//    debug_please_work = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL1_XL);
+    // uint8_t debug_please_work;
+
+    // debug_please_work = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL1_XL);
 
     // Write 0x80 to 0x58 TAP_CFG Enable interrupts; latched mode disabled
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_CFG1, 0x80);
 
-//    debug_please_work = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_CFG1);
+    //    debug_please_work = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_CFG1);
 
     // Write 0x60 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 11b = 50 degrees), D4D disable
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_THS_6D, 0x60);
-//    // Write 0x40 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 10b = 60 degrees), D4D disable
-//    SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_THS_6D, 0x40);
-//    // Write 0x20 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 01b = 70 degrees), D4D disable
-//	SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_THS_6D, 0x20);
-//    // Write 0x00 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 00b = 80 degrees), D4D disable
-//	SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_THS_6D, 0x00);
+    //    // Write 0x40 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 10b = 60 degrees), D4D disable
+    //    SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_THS_6D, 0x40);
+    //    // Write 0x20 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 01b = 70 degrees), D4D disable
+    //	SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_THS_6D, 0x20);
+    //    // Write 0x00 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 00b = 80 degrees), D4D disable
+    //	SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_THS_6D, 0x00);
 
     // Write 01h to 0x17 CTRL8_XL Enable LPF2 filter to 6D functionality
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL8_XL, 0x01);
