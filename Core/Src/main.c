@@ -96,12 +96,13 @@ int main(void)
     BSP_LED_Init(LED2);
 
     // BSP_ACCELERO_Init();
-    LSM6DSL_AccInit_6D_EXTI();
+    
     BSP_GYRO_Init();
     BSP_MAGNETO_Init();
     BSP_HSENSOR_Init();
     BSP_PSENSOR_Init();
     BSP_TSENSOR_Init();
+    LSM6DSL_AccInit_6D_EXTI();
 
     // print Entering STANDBY MODE when going to STANDBY_MODE
     sprintf(uart_buffer, "Entering STANDBY MODE\r\n");
@@ -258,7 +259,7 @@ static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
         // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
         // split to multiple messages to fit in buffer
-        sprintf(uart_buffer, "T: %.2f °C, P: %.2f kPA, H: %.2f%%, ", temp_data, pressure_data, humidity_data);
+        sprintf(uart_buffer, "T: %.2f degC, P: %.2f kPA, H: %.2f%%, ", temp_data, pressure_data, humidity_data);
         HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
         sprintf(uart_buffer, "Ax: %.2f ms-2, Ay: %.2f ms-2, Az: %.2f ms-2, ", accel_data[0], accel_data[1], accel_data[2]);
@@ -565,8 +566,14 @@ static void LSM6DSL_AccInit_6D_EXTI(void)
     // write 0x60 to 0x10 CTRL1_XL to set ODR_XL = 416 Hz and turn on device, FS_XL = ±2 g
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL1_XL, 0x60);
 
+//    uint8_t debug_please_work;
+//
+//    debug_please_work = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL1_XL);
+
     // Write 0x80 to 0x58 TAP_CFG Enable interrupts; latched mode disabled
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_CFG1, 0x80);
+
+//    debug_please_work = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_CFG1);
 
     // Write 0x60 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 11b = 50 degrees), D4D disable
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_THS_6D, 0x60);
