@@ -23,7 +23,6 @@
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_tsensor.h"
 #include "../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h"
 
-
 /* Variables -----------------------------------------------------------------*/
 /* States
 uint8_t to store 2 bits
@@ -62,11 +61,8 @@ float humidity_data;
 float pressure_data;
 float temp_data;
 
-volatile bool flag_6d = BOOL_CLR;
-
 /* Function Prototype --------------------------------------------------------*/
-extern void
-initialise_monitor_handles(void); // for semi-hosting support (printf)
+volatile bool flag_6d = BOOL_CLR;
 
 static void standby_mode(uint8_t* p_state);
 static void battle_no_last_of_ee2028_mode(uint8_t* p_state);
@@ -88,7 +84,6 @@ static void LSM6DSL_AccInit_6D_EXTI(void);
 
 int main(void)
 {
-    initialise_monitor_handles();
     HAL_Init();
     UART1_Init();
 
@@ -105,8 +100,7 @@ int main(void)
 
     // print Entering STANDBY MODE when going to STANDBY_MODE
     sprintf(uart_buffer, "Entering STANDBY MODE\r\n");
-    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer),
-        0xFFFF);
+    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
     while (1) {
         button_press();
@@ -273,7 +267,6 @@ static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
         last_telem_tick = HAL_GetTick();
     }
 
-    // TODO add upside down go to BATTLE_LAST_OF_EE2028_MODE
     // Reason for using EXTI: reduce over head of always I2C reading LSM6DSL_ACC_GYRO_D6D_SRC
     if (flag_6d == BOOL_SET) {
         flag_6d = 0;
@@ -426,6 +419,10 @@ static void button_press(void)
     }
 
     if (button_wait_flag == BOOL_SET && (HAL_GetTick() - button_last_tick > 500)) {
+        // forces the next click to be a new event
+        // prevents triple click within 500ms to be taken as two double clicks
+        button_last_tick = 0;
+
         // wait for 0.5 to decide its single press or not
         double_press = BOOL_CLR;
         single_press = BOOL_SET;
