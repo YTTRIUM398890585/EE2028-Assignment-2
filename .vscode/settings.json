@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "stm32l475e_iot01_accelero.h": "c"
+        "stm32l475e_iot01_accelero.h": "c",
+        "stm32l475e_iot01_gyro.h": "c"
     }
 }
