@@ -242,6 +242,10 @@ void Error_Handler(void);
 
 #define D6D_SRC_UPSIDEDOWN 0x10
 
+#define ACCEL_UPPER_THRES 15       // 15 m/s^2
+#define GYRO_UPPER_THRES 15       // 
+#define D6D_SRC_UPSIDEDOWN 0x10
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
