@@ -83,6 +83,17 @@ float temp_data;
 bool humidity_thres_flag = BOOL_CLR;
 bool temp_thres_flag = BOOL_CLR;
 
+// to store calibration value of hum and temp
+int16_t h0_lsb = 0;
+int16_t h1_lsb = 0;
+int16_t h0_rh = 0;
+int16_t h1_rh = 0;
+
+int16_t t0_lsb = 0;
+int16_t t1_lsb = 0;
+int16_t t0_degc = 0;
+int16_t t1_degc = 0;
+
 /* Function Prototype --------------------------------------------------------*/
 static void standby_mode(uint8_t* p_state);
 static void battle_no_last_of_ee2028_mode(uint8_t* p_state);
@@ -94,7 +105,7 @@ static void led_blink(uint32_t period);
 static void button_press(void);
 
 static void read_ready_acc_gyro_d6d(float* p_acc, float* p_gyro, uint8_t* p_d6d, bool* p_acc_thres_flag, bool* p_gyro_thres_flag);
-static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thres_flag, bool* temp_thres_flag);
+static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thres_flag, bool* temp_thres_flag, int16_t h0_lsb, int16_t h1_lsb, int16_t h0_rh, int16_t h1_rh, int16_t t0_lsb, int16_t t1_lsb, int16_t t0_degc, int16_t t1_degc);
 
 static void read_mag(int16_t* p_mag);
 static float read_pressure(void);
@@ -107,7 +118,7 @@ static void print_threshold_press(void);
 static void print_threshold_temp(void);
 
 static void LSM6DSL_AccGyroInit(void);
-static void HTS221_HumTempInit(void);
+static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_h0_rh, int16_t* p_h1_rh, int16_t* p_t0_lsb, int16_t* p_t1_lsb, int16_t* p_t0_degc, int16_t* p_t1_degc);
 
 int main(void)
 {
@@ -121,7 +132,7 @@ int main(void)
     SENSOR_IO_Init();
 
     LSM6DSL_AccGyroInit();
-    HTS221_HumTempInit();
+    HTS221_HumTempInit(&h0_lsb, &h1_lsb, &h0_rh, &h1_rh, &t0_lsb, &t1_lsb, &t0_degc, &t1_degc);
     BSP_MAGNETO_Init();
     BSP_PSENSOR_Init();
 
@@ -134,7 +145,7 @@ int main(void)
 
         // read data if DRDY triggered
         read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
-        read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag);
+        read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
 
         switch (state) {
         case STANDBY_MODE:
@@ -558,14 +569,33 @@ static float read_pressure(void)
  * @param temp_thres_flag pointer to bool flag
  * @retval None
  */
-static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thres_flag, bool* temp_thres_flag)
+static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thres_flag, bool* temp_thres_flag, int16_t h0_lsb, int16_t h1_lsb, int16_t h0_rh, int16_t h1_rh, int16_t t0_lsb, int16_t t1_lsb, int16_t t0_degc, int16_t t1_degc)
 {
     if (hum_temp_ready == BOOL_SET) {
-        // returns as float in %
-        *p_hum = HTS221_H_ReadHumidity(HTS221_I2C_ADDRESS);
+        int16_t H_T_out;
+        uint8_t buffer[2];
+        float tmp_f; 
 
-        // returns as float in deg c
-        *p_temp = HTS221_T_ReadTemp(HTS221_I2C_ADDRESS);
+        // reading humidity
+        SENSOR_IO_ReadMultiple(HTS221_I2C_ADDRESS, (HTS221_HR_OUT_L_REG | 0x80), buffer, 2);
+
+        H_T_out = (((uint16_t)buffer[1]) << 8) | (uint16_t)buffer[0];
+
+        tmp_f = (float)(H_T_out - h0_lsb) * (float)(h1_rh - h0_rh) / (float)(h1_lsb - h0_lsb)  +  h0_rh;
+        tmp_f *= 10.0f;
+
+        tmp_f = ( tmp_f > 1000.0f ) ? 1000.0f
+                : ( tmp_f <    0.0f ) ?    0.0f
+                : tmp_f;
+
+        *p_hum = (tmp_f / 10.0f); // returns as float in %
+        
+        // reading temperature
+        SENSOR_IO_ReadMultiple(HTS221_I2C_ADDRESS, (HTS221_TEMP_OUT_L_REG | 0x80), buffer, 2);
+
+        H_T_out = (((uint16_t)buffer[1]) << 8) | (uint16_t)buffer[0];
+
+        *p_temp = (float)(H_T_out - t0_lsb) * (float)(t1_degc - t0_degc) / (float)(t1_lsb - t0_lsb)  +  t0_degc; // returns as float in deg c
 
         // flag threshold if the magnitude exceed
         *humidity_thres_flag = *p_hum < HUM_LOWER_THRES ? BOOL_SET : BOOL_CLR;
@@ -771,7 +801,7 @@ static void LSM6DSL_AccGyroInit(void)
  * @param None
  * @retval None
  */
-static void HTS221_HumTempInit(void)
+static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_h0_rh, int16_t* p_h1_rh, int16_t* p_t0_lsb, int16_t* p_t1_lsb, int16_t* p_t0_degc, int16_t* p_t1_degc)
 {
     /*
     configuring the GPIO for EXTI from LSM6DSL at PD15
@@ -829,5 +859,40 @@ static void HTS221_HumTempInit(void)
     tmp |= HTS221_PD_MASK;
 
     /* Apply settings to CTRL_REG1 */
-    SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1, tmp);    
+    SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1, tmp);   
+
+    /*
+    read calibration register to reduce I2C overhead during reading
+    */
+    uint8_t buffer[4];
+
+    // for hum
+    // H0 * 2 and H1 * 2 in %
+    SENSOR_IO_ReadMultiple(HTS221_I2C_ADDRESS, (HTS221_H0_RH_X2 | 0x80), buffer, 2);
+    
+    // get H0 and H1 in %, rh = relative humidity
+    *p_h0_rh = buffer[0] >> 1;
+    *p_h1_rh = buffer[1] >> 1;
+
+    // get H0 in LSB
+    SENSOR_IO_ReadMultiple(HTS221_I2C_ADDRESS, (HTS221_H0_T0_OUT_L | 0x80), buffer, 2);
+    *p_h0_lsb = (((uint16_t)buffer[1]) << 8) | (uint16_t)buffer[0];
+
+    // get H1 in LSB
+    SENSOR_IO_ReadMultiple(HTS221_I2C_ADDRESS, (HTS221_H1_T0_OUT_L | 0x80), buffer, 2);
+    *p_h1_lsb = (((uint16_t)buffer[1]) << 8) | (uint16_t)buffer[0];
+
+    // for temp
+    // get T0 and T1 in degC, concat to 10 bits and divide 8
+    SENSOR_IO_ReadMultiple(HTS221_I2C_ADDRESS, (HTS221_T0_DEGC_X8 | 0x80), buffer, 2);
+    tmp = SENSOR_IO_Read(HTS221_I2C_ADDRESS, HTS221_T0_T1_DEGC_H2);
+
+    *p_t0_degc = ((((uint16_t)(tmp & 0x03)) << 8) | ((uint16_t)buffer[0])) >> 3;
+    *p_t1_degc = ((((uint16_t)(tmp & 0x0C)) << 6) | ((uint16_t)buffer[1])) >> 3;
+
+    // get T0 and T1 in lsb
+    SENSOR_IO_ReadMultiple(HTS221_I2C_ADDRESS, (HTS221_T0_OUT_L | 0x80), buffer, 4);
+
+    *p_t0_lsb = (((uint16_t)buffer[1]) << 8) | (uint16_t)buffer[0];
+    *p_t1_lsb = (((uint16_t)buffer[3]) << 8) | (uint16_t)buffer[2];
 }
