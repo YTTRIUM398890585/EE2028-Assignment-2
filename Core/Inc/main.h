@@ -1,22 +1,22 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.h
-  * @brief          : Header for main.c file.
-  *                   This file contains the common defines of the application.
-  ******************************************************************************
-  * @attention
-  *
-  * <h2><center>&copy; Copyright (c) 2020 STMicroelectronics.
-  * All rights reserved.</center></h2>
-  *
-  * This software component is licensed by ST under BSD 3-Clause license,
-  * the "License"; You may not use this file except in compliance with the
-  * License. You may obtain a copy of the License at:
-  *                        opensource.org/licenses/BSD-3-Clause
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.h
+ * @brief          : Header for main.c file.
+ *                   This file contains the common defines of the application.
+ ******************************************************************************
+ * @attention
+ *
+ * <h2><center>&copy; Copyright (c) 2020 STMicroelectronics.
+ * All rights reserved.</center></h2>
+ *
+ * This software component is licensed by ST under BSD 3-Clause license,
+ * the "License"; You may not use this file except in compliance with the
+ * License. You may obtain a copy of the License at:
+ *                        opensource.org/licenses/BSD-3-Clause
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
@@ -240,7 +240,25 @@ void Error_Handler(void);
 #define BOOL_SET 1
 #define BOOL_CLR 0
 
+// sensor stuff
 #define D6D_SRC_UPSIDEDOWN 0x10
+
+#define ACCEL_UPPER_THRES 11 // 11 m/s^2
+#define GYRO_UPPER_THRES 100 // 100 dps
+#define ACCEL_SQR_UPPER_THRES ACCEL_UPPER_THRES* ACCEL_UPPER_THRES 
+#define GYRO_SQR_UPPER_THRES GYRO_UPPER_THRES* GYRO_UPPER_THRES
+#define D6D_SRC_UPSIDEDOWN 0x10
+
+#define MAG_UPPER_THRES 4000 // 4000 mG
+#define MAG_SQR_UPPER_THRES MAG_UPPER_THRES* MAG_UPPER_THRES 
+
+#define PRESS_UPPER_THRES 110000 // 110000 kPa
+#define HUM_LOWER_THRES 80 // 80%
+#define TEMP_UPPER_THRES 30 // 40 degC
+
+// EXTI priorities
+#define EXTI15_10_IRQn_PREEMPT_PRIO 0x00
+#define EXTI15_10_IRQn_SUB_PRIO 0x00
 
 /* USER CODE END Private defines */
 

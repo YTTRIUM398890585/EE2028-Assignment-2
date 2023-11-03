@@ -7,6 +7,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
+#include "math.h"
 #include "stdbool.h"
 #include "stdint.h"
 #include "stdio.h"
@@ -52,18 +53,37 @@ Tx buffer make sure does not excedd 32 - 1 characters when added with whatever w
 char uart_buffer[UART_BUFFER_SIZE];
 UART_HandleTypeDef huart1;
 
-// Sensor and Telem
+/*
+Sensor and Telem
+*/
 uint32_t last_telem_tick = 0;
+
+// accel gyro and d6d stuff
+volatile bool acc_gyro_d6d_ready = BOOL_CLR;
 float accel_data[3];
 float gyro_data[3];
+uint8_t d6d_data = 0;
+bool acc_thres_flag = BOOL_CLR;
+bool gyro_thres_flag = BOOL_CLR;
+
+// magnetometer
+volatile bool mag_ready = BOOL_CLR;
 int16_t mag_data[3];
-float humidity_data;
+bool mag_thres_flag = BOOL_CLR;
+
+// pressure
+volatile bool press_ready = BOOL_CLR;
 float pressure_data;
+bool pressure_thres_flag = BOOL_CLR;
+
+// hum and temp
+volatile bool hum_temp_ready = BOOL_SET; // needed to kick start read
+float humidity_data;
 float temp_data;
+bool humidity_thres_flag = BOOL_CLR;
+bool temp_thres_flag = BOOL_CLR;
 
 /* Function Prototype --------------------------------------------------------*/
-volatile bool flag_6d = BOOL_CLR;
-
 static void standby_mode(uint8_t* p_state);
 static void battle_no_last_of_ee2028_mode(uint8_t* p_state);
 static void battle_last_of_ee2028_mode(uint8_t* p_state);
@@ -73,14 +93,21 @@ static void UART1_Init(void);
 static void led_blink(uint32_t period);
 static void button_press(void);
 
-static void read_acc(float* p_acc);
-static void read_gyro(float* p_gyro);
-static void read_mag(int16_t* p_mag);
-static float read_humidity(void);
-static float read_pressure(void);
-static float read_temp(void);
+static void read_ready_acc_gyro_d6d(float* p_acc, float* p_gyro, uint8_t* p_d6d, bool* p_acc_thres_flag, bool* p_gyro_thres_flag);
+static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thres_flag, bool* temp_thres_flag);
 
-static void LSM6DSL_AccInit_6D_EXTI(void);
+static void read_mag(int16_t* p_mag);
+static float read_pressure(void);
+
+static void print_threshold_acc(void);
+static void print_threshold_gyro(void);
+static void print_threshold_mag(void);
+static void print_threshold_hum(void);
+static void print_threshold_press(void);
+static void print_threshold_temp(void);
+
+static void LSM6DSL_AccGyroInit(void);
+static void HTS221_HumTempInit(void);
 
 int main(void)
 {
@@ -90,13 +117,13 @@ int main(void)
     BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
     BSP_LED_Init(LED2);
 
-    //     BSP_ACCELERO_Init();
-    LSM6DSL_AccInit_6D_EXTI();
-    BSP_GYRO_Init();
+    // must init this for I2C to configure the sensors
+    SENSOR_IO_Init();
+
+    LSM6DSL_AccGyroInit();
+    HTS221_HumTempInit();
     BSP_MAGNETO_Init();
-    BSP_HSENSOR_Init();
     BSP_PSENSOR_Init();
-    BSP_TSENSOR_Init();
 
     // print Entering STANDBY MODE when going to STANDBY_MODE
     sprintf(uart_buffer, "Entering STANDBY MODE\r\n");
@@ -104,6 +131,11 @@ int main(void)
 
     while (1) {
         button_press();
+
+        // read data if DRDY triggered
+        read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
+        read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag);
+
         switch (state) {
         case STANDBY_MODE:
             standby_mode(&state);
@@ -132,9 +164,9 @@ static void standby_mode(uint8_t* p_state)
 
     // in STANDBY_MODE, double press to enter BATTLE_NO_LAST_OF_EE2028_MODE
     if (double_press) {
+        // if upside down, go to BATTLE_LAST_OF_EE2028_MODE else BATTLE_NO_LAST_OF_EE2028_MODE
         uint8_t d6d_src = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_D6D_SRC);
 
-        // if upside down, go to BATTLE_LAST_OF_EE2028_MODE else BATTLE_NO_LAST_OF_EE2028_MODE
         if (d6d_src & D6D_SRC_UPSIDEDOWN) {
             *p_state = BATTLE_LAST_OF_EE2028_MODE;
             last_of_ee2028_tick = HAL_GetTick();
@@ -161,29 +193,29 @@ static void standby_mode(uint8_t* p_state)
 
     // read GMPH telem and send UART @ 1 Hz
     if (HAL_GetTick() - last_telem_tick >= 1000) {
-        read_gyro(gyro_data);
         read_mag(mag_data);
         pressure_data = read_pressure();
-        humidity_data = read_humidity();
 
-        // sprintf(uart_buffer, "Gx: %.2f dps, Gy: %.2f dps, Gz: %.2f dps, Mx: %d mG, My: %d mG, Mz: %d mG, P: %.2f kPA, H: %.2f%%\r\n",
-        //     gyro_data[0], gyro_data[1], gyro_data[2], mag_data[0], mag_data[1], mag_data[2], pressure_data, humidity_data);
-        // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+        print_threshold_gyro();
+        print_threshold_mag();
+        print_threshold_press();
+        print_threshold_hum();
 
-        // split to multiple messages to fit in buffer
-        sprintf(uart_buffer, "Gx: %.2f dps, Gy: %.2f dps, Gz: %.2f dps, ", gyro_data[0], gyro_data[1], gyro_data[2]);
-        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+        if ((gyro_thres_flag | mag_thres_flag | pressure_thres_flag | humidity_thres_flag) == BOOL_CLR) {
+            // no threshold violation, print normal telem
+            // split to multiple messages to fit in buffer
+            sprintf(uart_buffer, "Gx: %.2f dps, Gy: %.2f dps, Gz: %.2f dps, ", gyro_data[0], gyro_data[1], gyro_data[2]);
+            HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
-        sprintf(uart_buffer, "Mx: %d mG, My: %d mG, Mz: %d mG, ", mag_data[0], mag_data[1], mag_data[2]);
-        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+            sprintf(uart_buffer, "Mx: %d mG, My: %d mG, Mz: %d mG, ", mag_data[0], mag_data[1], mag_data[2]);
+            HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
-        sprintf(uart_buffer, "P: %.2f kPA, H: %.2f%%\r\n", pressure_data, humidity_data);
-        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+            sprintf(uart_buffer, "P: %.2f kPA, H: %.2f%%\r\n", pressure_data, humidity_data);
+            HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+        }
 
         last_telem_tick = HAL_GetTick();
     }
-
-    // TODO monitoring with interupt
 }
 
 static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
@@ -240,48 +272,43 @@ static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
 
     // read TPHAGM telem and send UART @ 1 Hz
     if (HAL_GetTick() - last_telem_tick >= 1000) {
-        temp_data = read_temp();
         pressure_data = read_pressure();
-        humidity_data = read_humidity();
-        read_acc(accel_data);
-        read_gyro(gyro_data);
         read_mag(mag_data);
 
-        // sprintf(uart_buffer, "T: %.2f °C, P: %.2f kPA, H: %.2f%%, Ax: %.2f ms-2, Ay: %.2f ms-2, Az: %.2f ms-2, Gx: %.2f dps, Gy: %.2f dps, Gz: %.2f dps, Mx: %d mG, My: %d mG, Mz: %d mG\r\n",
-        //     temp_data, pressure_data, humidity_data, accel_data[0], accel_data[1], accel_data[2], gyro_data[0], gyro_data[1], gyro_data[2], mag_data[0], mag_data[1], mag_data[2]);
-        // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+        print_threshold_acc();
+        print_threshold_gyro();
+        print_threshold_mag();
+        print_threshold_hum();
+        print_threshold_press();
+        print_threshold_temp();
 
-        // split to multiple messages to fit in buffer
-        sprintf(uart_buffer, "T: %.2f degC, P: %.2f kPA, H: %.2f%%, ", temp_data, pressure_data, humidity_data);
-        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+        if ((acc_thres_flag | gyro_thres_flag | mag_thres_flag | pressure_thres_flag | humidity_thres_flag | temp_thres_flag) == BOOL_CLR) {
+            // no threshold violation, print normal telem
 
-        sprintf(uart_buffer, "Ax: %.2f ms-2, Ay: %.2f ms-2, Az: %.2f ms-2, ", accel_data[0], accel_data[1], accel_data[2]);
-        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+            // split to multiple messages to fit in buffer
+            sprintf(uart_buffer, "T: %.2f degC, P: %.2f kPA, H: %.2f%%, ", temp_data, pressure_data, humidity_data);
+            HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
-        sprintf(uart_buffer, "Gx: %.2f dps, Gy: %.2f dps, Gz: %.2f dps, ", gyro_data[0], gyro_data[1], gyro_data[2]);
-        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+            sprintf(uart_buffer, "Ax: %.2f ms-2, Ay: %.2f ms-2, Az: %.2f ms-2, ", accel_data[0], accel_data[1], accel_data[2]);
+            HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
-        sprintf(uart_buffer, "Mx: %d mG, My: %d mG, Mz: %d mG\r\n", mag_data[0], mag_data[1], mag_data[2]);
-        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+            sprintf(uart_buffer, "Gx: %.2f dps, Gy: %.2f dps, Gz: %.2f dps, ", gyro_data[0], gyro_data[1], gyro_data[2]);
+            HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+
+            sprintf(uart_buffer, "Mx: %d mG, My: %d mG, Mz: %d mG\r\n", mag_data[0], mag_data[1], mag_data[2]);
+            HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+        }
 
         last_telem_tick = HAL_GetTick();
     }
 
-    // Reason for using EXTI: reduce over head of always I2C reading LSM6DSL_ACC_GYRO_D6D_SRC
-    if (flag_6d == BOOL_SET) {
-        flag_6d = 0;
-        uint8_t d6d_src = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_D6D_SRC);
-
-        // if upside down, go to BATTLE_LAST_OF_EE2028_MODE
-        if (d6d_src & D6D_SRC_UPSIDEDOWN) {
-            *p_state = BATTLE_LAST_OF_EE2028_MODE;
-            last_telem_tick = 0;
-            last_of_ee2028_tick = HAL_GetTick();
-            return;
-        }
+    // if upside down, go to BATTLE_LAST_OF_EE2028_MODE
+    if (d6d_data & D6D_SRC_UPSIDEDOWN) {
+        *p_state = BATTLE_LAST_OF_EE2028_MODE;
+        last_telem_tick = 0;
+        last_of_ee2028_tick = HAL_GetTick();
+        return;
     }
-
-    // TODO monitoring with interupt
 }
 
 static void battle_last_of_ee2028_mode(uint8_t* p_state)
@@ -387,9 +414,14 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         button_flag = BOOL_SET;
     }
 
-    // 6D from LSM6DSL
+    // EXTI from LSM6DSL, flag to read Accel Data, Gyro Data and LSM6DSL_ACC_GYRO_D6D_SRC
     if (GPIO_Pin == GPIO_PIN_11) {
-        flag_6d = BOOL_SET;
+        acc_gyro_d6d_ready = BOOL_SET;
+    }
+
+    // EXTI from HTS221, flag to read Humidity and Temperature
+    if (GPIO_Pin == GPIO_PIN_15) {
+        hum_temp_ready = BOOL_SET;
     }
 }
 
@@ -410,6 +442,10 @@ static void button_press(void)
             button_last_tick = button_press_tick;
             button_wait_flag = BOOL_SET; // used to check for single press later
         } else {
+            // forces the next click to be a new event
+            // prevents triple click within 500ms to be taken as two double clicks
+            button_last_tick = 0;
+
             // the last time pressed is within 500ms ==> double press
             double_press = BOOL_SET;
             single_press = BOOL_CLR;
@@ -419,10 +455,6 @@ static void button_press(void)
     }
 
     if (button_wait_flag == BOOL_SET && (HAL_GetTick() - button_last_tick > 500)) {
-        // forces the next click to be a new event
-        // prevents triple click within 500ms to be taken as two double clicks
-        button_last_tick = 0;
-
         // wait for 0.5 to decide its single press or not
         double_press = BOOL_CLR;
         single_press = BOOL_SET;
@@ -449,35 +481,46 @@ static void led_blink(uint32_t period)
 }
 
 /**
- * @brief read acceleration from LSM6DSL, using LSM6DSL.h straight
- * @param float* p_acc pointer to float array of 3 elements
+ * @brief read acc, gyro, d6d from LSM6DSL when DRDY is flagged
+ *        using LSM6DSL.C straight as BSP is bypasssed in init
+ * @param p_acc pointer to float array of 3 elements for accel
+ * @param p_gyro pointer to float array of 3 elements for gyro
+ * @param p_d6d pointer uint8_t for the orientation
+ * @param p_acc_thres_flag pointer bool for the threshold monitoring
+ * @param p_gyro_thres_flag pointer bool for the threshold monitoring
  * @retval None
  */
-static void read_acc(float* p_acc)
+static void read_ready_acc_gyro_d6d(float* p_acc, float* p_gyro, uint8_t* p_d6d, bool* p_acc_thres_flag, bool* p_gyro_thres_flag)
 {
-    int16_t accel_data_i16[3] = { 0 }; // array to store the x, y and z readings.
-    LSM6DSL_AccReadXYZ(accel_data_i16); // read accelerometer
-    // the function above returns 16 bit integers which are acceleration in mg (9.8/1000 m/s^2).
-    // Converting to float in m/s^2
-    for (int i = 0; i < 3; i++) {
-        *(p_acc + i) = (float)accel_data_i16[i] * (9.8 / 1000.0f);
-    }
-}
+    // only read when data is ready to reduce I2C overhead and unnecessary reads
+    if (acc_gyro_d6d_ready == BOOL_SET) {
+        int16_t accel_data_i16[3] = { 0 }; // array to store the x, y and z readings.
+        LSM6DSL_AccReadXYZ(accel_data_i16); // read accelerometer
+        // the function above returns 16 bit integers which are acceleration in mg (9.8/1000 m/s^2).
+        // Converting to float in m/s^2
+        for (int i = 0; i < 3; i++) {
+            *(p_acc + i) = (float)accel_data_i16[i] * (9.8 / 1000.0f);
+        }
 
-/**
- * @brief read gyro from LSM6DSL
- * @param float* p_gyro pointer to float array of 3 elements
- * @retval None
- */
-static void read_gyro(float* p_gyro)
-{
-    // the function that actually reads the xyz is LSM6DSL_GyroReadXYZAngRate in lsm6dsl.c
-    // the function also does sensitivity conversion to mdps
-    // returns float in mdps
-    BSP_GYRO_GetXYZ(p_gyro);
-    // Converting to float in dps
-    for (int i = 0; i < 3; i++) {
-        *(p_gyro + i) = *(p_gyro + i) / 1000.0f;
+        // the function does sensitivity conversion to mdps and returns float in mdps
+        LSM6DSL_GyroReadXYZAngRate(p_gyro);
+        // Converting to float in dps
+        for (int i = 0; i < 3; i++) {
+            *(p_gyro + i) = *(p_gyro + i) / 1000.0f;
+        }
+
+        // flag threshold if the magnitude exceed
+        float magnitude = pow(*(p_acc), 2) + pow(*(p_acc + 1), 2) + pow(*(p_acc + 2), 2);
+        *p_acc_thres_flag = (magnitude > ACCEL_SQR_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
+
+        magnitude = pow(*(p_gyro), 2) + pow(*(p_gyro + 1), 2) + pow(*(p_gyro + 2), 2);
+        *p_gyro_thres_flag = (magnitude > GYRO_SQR_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
+
+        // read the D6D register to give the orientation
+        *p_d6d = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_D6D_SRC);
+
+        // clear the DRDY flag
+        acc_gyro_d6d_ready = BOOL_CLR;
     }
 }
 
@@ -495,18 +538,6 @@ static void read_mag(int16_t* p_mag)
 }
 
 /**
- * @brief read humidity from HTS221
- * @param None
- * @retval humidity
- */
-static float read_humidity(void)
-{
-    // the function that actually reads the value is HTS221_H_ReadHumidity in hts221.c
-    // returns as float in %
-    return BSP_HSENSOR_ReadHumidity();
-}
-
-/**
  * @brief read pressure from LPS22HB
  * @param None
  * @retval humidity
@@ -520,31 +551,125 @@ static float read_pressure(void)
 }
 
 /**
- * @brief read temperature from HTS221
- * @param None
- * @retval temperature
+ * @brief read humidity and temperature from HTS221 when data is ready
+ * @param p_hum pointer to float
+ * @param p_temp pointer to float
+ * @param humidity_thres_flag pointer to bool flag
+ * @param temp_thres_flag pointer to bool flag
+ * @retval None
  */
-static float read_temp(void)
+static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thres_flag, bool* temp_thres_flag)
 {
-    // the function that actually reads the value is HTS221_T_ReadTemp in hts221.c
-    // returns as float in deg c
-    return BSP_TSENSOR_ReadTemp();
+    if (hum_temp_ready == BOOL_SET) {
+        // returns as float in %
+        *p_hum = HTS221_H_ReadHumidity(HTS221_I2C_ADDRESS);
+
+        // returns as float in deg c
+        *p_temp = HTS221_T_ReadTemp(HTS221_I2C_ADDRESS);
+
+        // flag threshold if the magnitude exceed
+        *humidity_thres_flag = *p_hum < HUM_LOWER_THRES ? BOOL_SET : BOOL_CLR;
+        *temp_thres_flag = *p_temp > TEMP_UPPER_THRES ? BOOL_SET : BOOL_CLR;
+        
+        // clear the DRDY flag
+        hum_temp_ready = BOOL_CLR;
+    }
 }
 
 /**
- * @brief modified init for LSM6DSL accelerometer to support 6D interrupt,
+ * @brief print warning if over threshold for accel
+ * @param None
+ * @retval None
+ */
+static void print_threshold_acc(void){
+    if (acc_thres_flag == BOOL_SET) {
+        // accel exceed print warning
+        sprintf(uart_buffer, "|A|: %.2f ms-2 exceed threshold of %d ms-2\r\n", sqrt(pow(accel_data[0], 2) + pow(accel_data[1], 2) + pow(accel_data[2], 2)), ACCEL_UPPER_THRES);
+        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+    }
+}
+
+/**
+ * @brief print warning if over threshold for gyro
+ * @param None
+ * @retval None
+ */
+static void print_threshold_gyro(void){
+    if (gyro_thres_flag == BOOL_SET) {
+        // gyro exceed print warning
+        sprintf(uart_buffer, "|G|: %.2f dps exceed threshold of %d dps\r\n", sqrt(pow(gyro_data[0], 2) + pow(gyro_data[1], 2) + pow(gyro_data[2], 2)), GYRO_UPPER_THRES);
+        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+    }
+}
+
+/**
+ * @brief print warning if over threshold for mag
+ * @param None
+ * @retval None
+ */
+static void print_threshold_mag(void){
+    if (mag_thres_flag == BOOL_SET) {
+        // mag exceed print warning
+        sprintf(uart_buffer, "|M|: %.2f mG exceed threshold of %d mG\r\n", sqrt(pow(mag_data[0], 2) + pow(mag_data[1], 2) + pow(mag_data[2], 2)), MAG_UPPER_THRES);
+        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+    }
+}
+
+/**
+ * @brief print warning if over threshold for hum
+ * @param None
+ * @retval None
+ */
+static void print_threshold_hum(void){
+    if (humidity_thres_flag == BOOL_SET) {
+        // hum exceed print warning
+        sprintf(uart_buffer, "H: %.2f%% exceed threshold of %d%%\r\n", humidity_data, HUM_LOWER_THRES);
+        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+    }
+}
+
+/**
+ * @brief print warning if over threshold for press
+ * @param None
+ * @retval None
+ */
+static void print_threshold_press(void){
+    if (pressure_thres_flag == BOOL_SET) {
+        // press exceed print warning
+        sprintf(uart_buffer, "P: %.2f kPa exceed threshold of %d kPa\r\n", pressure_data, PRESS_UPPER_THRES);
+        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+    }
+}
+
+/**
+ * @brief print warning if over threshold for temp
+ * @param None
+ * @retval None
+ */
+static void print_threshold_temp(void){
+    if (temp_thres_flag == BOOL_SET) {
+        // press exceed print warning
+        sprintf(uart_buffer, "T: %.2f degC exceed threshold of %d degC\r\n", temp_data, TEMP_UPPER_THRES);
+        HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+    }
+}
+
+/**
+ * @brief modified init for LSM6DSL accelerometer and gyro to support 6D and DRDY interrupt,
  *        also init GPIO PD11 for the EXTI
  * @param None
  * @retval None
  */
-static void LSM6DSL_AccInit_6D_EXTI(void)
+static void LSM6DSL_AccGyroInit(void)
 {
-    // configuring the GPIO for 6D EXTI from LSM6DSL at PD11
+    /*
+    configuring the GPIO for EXTI from LSM6DSL at PD11
+    */
     GPIO_InitTypeDef gpio_init_structure;
 
     __HAL_RCC_GPIOD_CLK_ENABLE();
 
-    /* Configure PD11 pin as input with External interrupt */
+    // Configure PD11 pin as input with External interrupt
     gpio_init_structure.Pin = GPIO_PIN_11;
     gpio_init_structure.Pull = GPIO_PULLDOWN;
     gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
@@ -553,26 +678,24 @@ static void LSM6DSL_AccInit_6D_EXTI(void)
 
     HAL_GPIO_Init(GPIOD, &gpio_init_structure);
 
-    /* Enable and set EXTI Interrupt priority */
-    HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0x0F, 0x00);
+    // Enable and set EXTI Interrupt priority
+    HAL_NVIC_SetPriority(EXTI15_10_IRQn, EXTI15_10_IRQn_PREEMPT_PRIO, EXTI15_10_IRQn_SUB_PRIO);
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
-    // configuring the LSM6DSL for 6D EXTI through INT1
-    // must init this for I2C
-    SENSOR_IO_Init();
+    //////////////////////////////////////////////////////////////////////////////////////////
+    uint8_t ctrl = 0x00;
+    uint8_t tmp;
 
+    /*
+    configuring the LSM6DSL for 6D EXTI through INT1
+    */
     // write 0x60 to 0x10 CTRL1_XL to set ODR_XL = 416 Hz and turn on device, FS_XL = ±2 g
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL1_XL, 0x60);
-
-    // uint8_t debug_please_work;
-
-    // debug_please_work = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL1_XL);
 
     // Write 0x80 to 0x58 TAP_CFG Enable interrupts; latched mode disabled
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_CFG1, 0x80);
 
-    //    debug_please_work = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_CFG1);
-
+    // thershold at 50 deg seems good
     // Write 0x60 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 11b = 50 degrees), D4D disable
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_THS_6D, 0x60);
     //    // Write 0x40 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 10b = 60 degrees), D4D disable
@@ -582,21 +705,129 @@ static void LSM6DSL_AccInit_6D_EXTI(void)
     //    // Write 0x00 to 0x59 TAP_THS_6D Set 6D threshold (SIXD_THS[1:0] = 00b = 80 degrees), D4D disable
     //	SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_TAP_THS_6D, 0x00);
 
-    // Write 01h to 0x17 CTRL8_XL Enable LPF2 filter to 6D functionality
-    SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL8_XL, 0x01);
+    // Write set HPCF_XL[1:0] to 11, INPUT_COMPOSITE = 1, LOW_PASS_ON_6D = 1 in CTRL8_XL to
+    // to config LPF2 filter to 6D functionality
+    // this LPF has a very low BW, to avoid triggering of 6d when shaking the board
+    tmp = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL8_XL);
+
+    ctrl = 0x69;
+    tmp &= ~(0x6B);
+    tmp |= ctrl;
+    SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL8_XL, tmp);
 
     // Write 04h to 0x5E MD1_CFG 6D interrupt driven to INT1 pin
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_MD1_CFG, 0x04);
 
-    uint8_t ctrl = 0x00;
-    uint8_t tmp;
+    /*
+    configuring the LSM6DSL for accel
+    */
 
-    /* Read CTRL3_C */
+    // all necessary config are done along with the d6d
+
+    /*
+    configuring the LSM6DSL for gyro
+    */
+    tmp = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL2_G);
+
+    // Write value to GYRO MEMS CTRL2_G register: FS = 2000 dps and Data Rate 52 Hz
+    ctrl = LSM6DSL_GYRO_FS_2000 | LSM6DSL_ODR_52Hz;
+    tmp &= ~(0xFC);
+    tmp |= ctrl;
+    SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL2_G, tmp);
+
+    /*
+    Write value to CTRL3_C register: BDU and Auto-increment and active high int
+    the same register to configure for both acc nd gyro
+    */
+    // Read CTRL3_C
     tmp = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL3_C);
 
-    /* Write value to ACC MEMS CTRL3_C register: BDU and Auto-increment */
     ctrl = LSM6DSL_BDU_BLOCK_UPDATE | LSM6DSL_ACC_GYRO_IF_INC_ENABLED;
     tmp &= ~(0x64); // clear BDU, IF_INC and H_LACTIVE (for interrupt to be active high)
     tmp |= ctrl;
     SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL3_C, tmp);
+
+    /*
+    configuring the LSM6DSL for accel gyro DRDY INT1
+    */
+    // Write 0x03 to 0x0D INT1_CTRL, DRDY for both accel and gyro interrupt driven to INT1 pin
+    SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_INT1_CTRL, 0x03);
+
+    // Write 0x80 to DRDY_PULSE_CFG_G (0Bh) to make DRDY be a pulse and not latched
+    SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_DRDY_PULSE_CFG_G, 0x80);
+
+    // set DRDY_MASK to 1 in CTRL4_C (13h) to wait LPF before DRDY
+    tmp = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL4_C);
+
+    ctrl = 0x08;
+    tmp &= ~(0x09); // clear DRDY_MASK and bit 0 must set to 0
+    tmp |= ctrl;
+    SENSOR_IO_Write(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_CTRL4_C, tmp);
+}
+
+/**
+ * @brief modified init for HTS221 humidity and temperature to support DRDY interrupt,
+ *        also init GPIO PD15 for the EXTI
+ * @param None
+ * @retval None
+ */
+static void HTS221_HumTempInit(void)
+{
+    /*
+    configuring the GPIO for EXTI from LSM6DSL at PD15
+    */
+    GPIO_InitTypeDef gpio_init_structure;
+
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+
+    // Configure PD15 pin as input with External interrupt
+    gpio_init_structure.Pin = GPIO_PIN_15;
+    gpio_init_structure.Pull = GPIO_PULLDOWN;
+    gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+
+    gpio_init_structure.Mode = GPIO_MODE_IT_RISING; // interupt is active high
+
+    HAL_GPIO_Init(GPIOD, &gpio_init_structure);
+
+    // Enable and set EXTI Interrupt priority
+    HAL_NVIC_SetPriority(EXTI15_10_IRQn, EXTI15_10_IRQn_PREEMPT_PRIO, EXTI15_10_IRQn_SUB_PRIO);
+    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+
+    //////////////////////////////////////////////////////////////////////////////////////////
+    uint8_t tmp;
+
+    /*
+    Init for H and T
+    */
+    /* Read CTRL_REG1 */
+    tmp = SENSOR_IO_Read(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1);
+
+    /* Enable BDU */
+    tmp &= ~HTS221_BDU_MASK;
+    tmp |= (1 << HTS221_BDU_BIT);
+
+    /* Set default ODR */
+    tmp &= ~HTS221_ODR_MASK;
+    tmp |= (uint8_t)0x01; /* Set ODR to 1Hz */
+
+    /*
+    DRDY config
+    */
+    // DRDY_H_L 0 active high
+    // PP_OD 0 push pull
+    // DRDY_EN 1 enabled
+    // clear 0xC4
+    // set 0x04
+    tmp = SENSOR_IO_Read(HTS221_I2C_ADDRESS, HTS221_CTRL_REG3);
+
+    tmp &= ~0xC4;
+    tmp |= 0x04;
+
+    SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG3, tmp);
+
+    /* Activate the device */
+    tmp |= HTS221_PD_MASK;
+
+    /* Apply settings to CTRL_REG1 */
+    SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1, tmp);
 }
