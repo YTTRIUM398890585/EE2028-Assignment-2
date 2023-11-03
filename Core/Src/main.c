@@ -83,6 +83,9 @@ float temp_data;
 bool humidity_thres_flag = BOOL_CLR;
 bool temp_thres_flag = BOOL_CLR;
 
+
+// for rf
+
 /* Function Prototype --------------------------------------------------------*/
 static void standby_mode(uint8_t* p_state);
 static void battle_no_last_of_ee2028_mode(uint8_t* p_state);
