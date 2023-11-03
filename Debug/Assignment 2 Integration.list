@@ -37,17 +37,17 @@ Idx Name          Size      VMA       LMA       File off  Algn
                   CONTENTS, READONLY, DEBUGGING, OCTETS
  16 .debug_macro  000288b0  00000000  00000000  00032040  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 17 .debug_line   0000f6a6  00000000  00000000  0005a8f0  2**0
+ 17 .debug_line   0000f6a2  00000000  00000000  0005a8f0  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 18 .debug_str    000f54fb  00000000  00000000  00069f96  2**0
+ 18 .debug_str    000f54fb  00000000  00000000  00069f92  2**0
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 19 .comment      00000050  00000000  00000000  0015f491  2**0
+ 19 .comment      00000050  00000000  00000000  0015f48d  2**0
                   CONTENTS, READONLY
- 20 .debug_frame  00004ce4  00000000  00000000  0015f4e4  2**2
+ 20 .debug_frame  00004ce4  00000000  00000000  0015f4e0  2**2
                   CONTENTS, READONLY, DEBUGGING, OCTETS
- 21 .stab         00000024  00000000  00000000  001641c8  2**2
+ 21 .stab         00000024  00000000  00000000  001641c4  2**2
                   CONTENTS, READONLY, DEBUGGING
- 22 .stabstr      0000003c  00000000  00000000  001641ec  2**0
+ 22 .stabstr      0000003c  00000000  00000000  001641e8  2**0
                   CONTENTS, READONLY, DEBUGGING
 
 Disassembly of section .text:
@@ -3723,64 +3723,64 @@ static void HTS221_HumTempInit(void)
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
  800215e:	2028      	movs	r0, #40	; 0x28
  8002160:	f001 f9eb 	bl	800353a <HAL_NVIC_EnableIRQ>
-
-    /*
-    Init for H and T
-    */
-    /* Read CTRL_REG1 */
-    tmp = SENSOR_IO_Read(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1);
- 8002164:	2120      	movs	r1, #32
- 8002166:	20be      	movs	r0, #190	; 0xbe
- 8002168:	f000 fbe0 	bl	800292c <SENSOR_IO_Read>
- 800216c:	4603      	mov	r3, r0
- 800216e:	77fb      	strb	r3, [r7, #31]
-
-    /* Enable BDU */
-    tmp &= ~HTS221_BDU_MASK;
- 8002170:	7ffb      	ldrb	r3, [r7, #31]
- 8002172:	f023 0304 	bic.w	r3, r3, #4
- 8002176:	77fb      	strb	r3, [r7, #31]
-    tmp |= (1 << HTS221_BDU_BIT);
- 8002178:	7ffb      	ldrb	r3, [r7, #31]
- 800217a:	f043 0304 	orr.w	r3, r3, #4
- 800217e:	77fb      	strb	r3, [r7, #31]
-
-    /* Set default ODR */
-    tmp &= ~HTS221_ODR_MASK;
- 8002180:	7ffb      	ldrb	r3, [r7, #31]
- 8002182:	f023 0303 	bic.w	r3, r3, #3
- 8002186:	77fb      	strb	r3, [r7, #31]
-    tmp |= (uint8_t)0x01; /* Set ODR to 1Hz */
- 8002188:	7ffb      	ldrb	r3, [r7, #31]
- 800218a:	f043 0301 	orr.w	r3, r3, #1
- 800218e:	77fb      	strb	r3, [r7, #31]
     // DRDY_H_L 0 active high
     // PP_OD 0 push pull
     // DRDY_EN 1 enabled
     // clear 0xC4
     // set 0x04
     tmp = SENSOR_IO_Read(HTS221_I2C_ADDRESS, HTS221_CTRL_REG3);
- 8002190:	2122      	movs	r1, #34	; 0x22
- 8002192:	20be      	movs	r0, #190	; 0xbe
- 8002194:	f000 fbca 	bl	800292c <SENSOR_IO_Read>
- 8002198:	4603      	mov	r3, r0
- 800219a:	77fb      	strb	r3, [r7, #31]
+ 8002164:	2122      	movs	r1, #34	; 0x22
+ 8002166:	20be      	movs	r0, #190	; 0xbe
+ 8002168:	f000 fbe0 	bl	800292c <SENSOR_IO_Read>
+ 800216c:	4603      	mov	r3, r0
+ 800216e:	77fb      	strb	r3, [r7, #31]
 
     tmp &= ~0xC4;
- 800219c:	7ffb      	ldrb	r3, [r7, #31]
- 800219e:	f003 033b 	and.w	r3, r3, #59	; 0x3b
- 80021a2:	77fb      	strb	r3, [r7, #31]
+ 8002170:	7ffb      	ldrb	r3, [r7, #31]
+ 8002172:	f003 033b 	and.w	r3, r3, #59	; 0x3b
+ 8002176:	77fb      	strb	r3, [r7, #31]
     tmp |= 0x04;
- 80021a4:	7ffb      	ldrb	r3, [r7, #31]
- 80021a6:	f043 0304 	orr.w	r3, r3, #4
- 80021aa:	77fb      	strb	r3, [r7, #31]
+ 8002178:	7ffb      	ldrb	r3, [r7, #31]
+ 800217a:	f043 0304 	orr.w	r3, r3, #4
+ 800217e:	77fb      	strb	r3, [r7, #31]
 
     SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG3, tmp);
- 80021ac:	7ffb      	ldrb	r3, [r7, #31]
- 80021ae:	461a      	mov	r2, r3
- 80021b0:	2122      	movs	r1, #34	; 0x22
- 80021b2:	20be      	movs	r0, #190	; 0xbe
- 80021b4:	f000 fba0 	bl	80028f8 <SENSOR_IO_Write>
+ 8002180:	7ffb      	ldrb	r3, [r7, #31]
+ 8002182:	461a      	mov	r2, r3
+ 8002184:	2122      	movs	r1, #34	; 0x22
+ 8002186:	20be      	movs	r0, #190	; 0xbe
+ 8002188:	f000 fbb6 	bl	80028f8 <SENSOR_IO_Write>
+
+    /*
+    Init for H and T
+    */
+    /* Read CTRL_REG1 */
+    tmp = SENSOR_IO_Read(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1);
+ 800218c:	2120      	movs	r1, #32
+ 800218e:	20be      	movs	r0, #190	; 0xbe
+ 8002190:	f000 fbcc 	bl	800292c <SENSOR_IO_Read>
+ 8002194:	4603      	mov	r3, r0
+ 8002196:	77fb      	strb	r3, [r7, #31]
+
+    /* Enable BDU */
+    tmp &= ~HTS221_BDU_MASK;
+ 8002198:	7ffb      	ldrb	r3, [r7, #31]
+ 800219a:	f023 0304 	bic.w	r3, r3, #4
+ 800219e:	77fb      	strb	r3, [r7, #31]
+    tmp |= (1 << HTS221_BDU_BIT);
+ 80021a0:	7ffb      	ldrb	r3, [r7, #31]
+ 80021a2:	f043 0304 	orr.w	r3, r3, #4
+ 80021a6:	77fb      	strb	r3, [r7, #31]
+
+    /* Set default ODR */
+    tmp &= ~HTS221_ODR_MASK;
+ 80021a8:	7ffb      	ldrb	r3, [r7, #31]
+ 80021aa:	f023 0303 	bic.w	r3, r3, #3
+ 80021ae:	77fb      	strb	r3, [r7, #31]
+    tmp |= (uint8_t)0x01; /* Set ODR to 1Hz */
+ 80021b0:	7ffb      	ldrb	r3, [r7, #31]
+ 80021b2:	f043 0301 	orr.w	r3, r3, #1
+ 80021b6:	77fb      	strb	r3, [r7, #31]
 
     /* Activate the device */
     tmp |= HTS221_PD_MASK;
@@ -3789,7 +3789,7 @@ static void HTS221_HumTempInit(void)
  80021be:	77fb      	strb	r3, [r7, #31]
 
     /* Apply settings to CTRL_REG1 */
-    SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1, tmp);
+    SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1, tmp);    
  80021c0:	7ffb      	ldrb	r3, [r7, #31]
  80021c2:	461a      	mov	r2, r3
  80021c4:	2120      	movs	r1, #32

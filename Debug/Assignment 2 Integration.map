@@ -7522,27 +7522,27 @@ LOAD c:/st/stm32cubeide_1.10.1/stm32cubeide/plugins/com.st.stm32cube.ide.mcu.ext
  .debug_macro   0x00000000000283ff      0x264 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_rcc.o
  .debug_macro   0x0000000000028663      0x24d ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_uart.o
 
-.debug_line     0x0000000000000000     0xf6a6
- .debug_line    0x0000000000000000     0x141a ./Core/Src/main.o
- .debug_line    0x000000000000141a      0x9b7 ./Core/Src/stm32l4xx_hal_msp.o
- .debug_line    0x0000000000001dd1      0x873 ./Core/Src/stm32l4xx_it.o
- .debug_line    0x0000000000002644      0x57c ./Core/Src/sysmem.o
- .debug_line    0x0000000000002bc0      0x84a ./Core/Src/system_stm32l4xx.o
- .debug_line    0x000000000000340a       0x85 ./Core/Startup/startup_stm32l475vgtx.o
- .debug_line    0x000000000000348f      0xc59 ./Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01.o
- .debug_line    0x00000000000040e8      0x8df ./Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_magneto.o
- .debug_line    0x00000000000049c7      0x8a6 ./Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_psensor.o
- .debug_line    0x000000000000526d      0x54f ./Drivers/BSP/Components/hts221/hts221.o
- .debug_line    0x00000000000057bc      0x517 ./Drivers/BSP/Components/lis3mdl/lis3mdl.o
- .debug_line    0x0000000000005cd3      0x53e ./Drivers/BSP/Components/lps22hb/lps22hb.o
- .debug_line    0x0000000000006211      0x6a5 ./Drivers/BSP/Components/lsm6dsl/lsm6dsl.o
- .debug_line    0x00000000000068b6      0xb63 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal.o
- .debug_line    0x0000000000007419      0xd10 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_cortex.o
- .debug_line    0x0000000000008129      0xbec ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_gpio.o
- .debug_line    0x0000000000008d15     0x3340 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_i2c.o
- .debug_line    0x000000000000c055      0x99d ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_i2c_ex.o
- .debug_line    0x000000000000c9f2      0xfb4 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_rcc.o
- .debug_line    0x000000000000d9a6     0x1d00 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_uart.o
+.debug_line     0x0000000000000000     0xf6a2
+ .debug_line    0x0000000000000000     0x1416 ./Core/Src/main.o
+ .debug_line    0x0000000000001416      0x9b7 ./Core/Src/stm32l4xx_hal_msp.o
+ .debug_line    0x0000000000001dcd      0x873 ./Core/Src/stm32l4xx_it.o
+ .debug_line    0x0000000000002640      0x57c ./Core/Src/sysmem.o
+ .debug_line    0x0000000000002bbc      0x84a ./Core/Src/system_stm32l4xx.o
+ .debug_line    0x0000000000003406       0x85 ./Core/Startup/startup_stm32l475vgtx.o
+ .debug_line    0x000000000000348b      0xc59 ./Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01.o
+ .debug_line    0x00000000000040e4      0x8df ./Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_magneto.o
+ .debug_line    0x00000000000049c3      0x8a6 ./Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_psensor.o
+ .debug_line    0x0000000000005269      0x54f ./Drivers/BSP/Components/hts221/hts221.o
+ .debug_line    0x00000000000057b8      0x517 ./Drivers/BSP/Components/lis3mdl/lis3mdl.o
+ .debug_line    0x0000000000005ccf      0x53e ./Drivers/BSP/Components/lps22hb/lps22hb.o
+ .debug_line    0x000000000000620d      0x6a5 ./Drivers/BSP/Components/lsm6dsl/lsm6dsl.o
+ .debug_line    0x00000000000068b2      0xb63 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal.o
+ .debug_line    0x0000000000007415      0xd10 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_cortex.o
+ .debug_line    0x0000000000008125      0xbec ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_gpio.o
+ .debug_line    0x0000000000008d11     0x3340 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_i2c.o
+ .debug_line    0x000000000000c051      0x99d ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_i2c_ex.o
+ .debug_line    0x000000000000c9ee      0xfb4 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_rcc.o
+ .debug_line    0x000000000000d9a2     0x1d00 ./Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_hal_uart.o
 
 .debug_str      0x0000000000000000    0xf54fb
  .debug_str     0x0000000000000000    0xf10c5 ./Core/Src/main.o

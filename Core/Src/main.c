@@ -797,20 +797,6 @@ static void HTS221_HumTempInit(void)
     uint8_t tmp;
 
     /*
-    Init for H and T
-    */
-    /* Read CTRL_REG1 */
-    tmp = SENSOR_IO_Read(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1);
-
-    /* Enable BDU */
-    tmp &= ~HTS221_BDU_MASK;
-    tmp |= (1 << HTS221_BDU_BIT);
-
-    /* Set default ODR */
-    tmp &= ~HTS221_ODR_MASK;
-    tmp |= (uint8_t)0x01; /* Set ODR to 1Hz */
-
-    /*
     DRDY config
     */
     // DRDY_H_L 0 active high
@@ -825,9 +811,23 @@ static void HTS221_HumTempInit(void)
 
     SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG3, tmp);
 
+    /*
+    Init for H and T
+    */
+    /* Read CTRL_REG1 */
+    tmp = SENSOR_IO_Read(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1);
+
+    /* Enable BDU */
+    tmp &= ~HTS221_BDU_MASK;
+    tmp |= (1 << HTS221_BDU_BIT);
+
+    /* Set default ODR */
+    tmp &= ~HTS221_ODR_MASK;
+    tmp |= (uint8_t)0x01; /* Set ODR to 1Hz */
+
     /* Activate the device */
     tmp |= HTS221_PD_MASK;
 
     /* Apply settings to CTRL_REG1 */
-    SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1, tmp);
+    SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1, tmp);    
 }
