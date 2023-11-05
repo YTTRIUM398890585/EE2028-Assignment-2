@@ -13,16 +13,20 @@
 #include "stdio.h"
 #include "string.h"
 
-// button and led
+// button, led and HTS221
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01.h"
+#include "../../Drivers/BSP/Components/hts221/hts221.h"
 
-// Sensors
-#include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_gyro.h"
-#include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_hsensor.h"
+// for accel and gyro read
+#include "../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h"
+
+// Sensors (to be changed after adding custom init)
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_magneto.h"
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_psensor.h"
-#include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_tsensor.h"
-#include "../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h"
+
+// RF
+#include "spsgrf.h"
+#define APPLICATION_TRANSMITTER // comment out if programming the receiver
 
 /* Variables -----------------------------------------------------------------*/
 /* States
@@ -83,8 +87,14 @@ float temp_data;
 bool humidity_thres_flag = BOOL_CLR;
 bool temp_thres_flag = BOOL_CLR;
 
-
 // for rf
+volatile SpiritFlagStatus xTxDoneFlag;
+volatile SpiritFlagStatus xRxDoneFlag;
+char payload[20] = "Hello World!\r\n";
+uint8_t rxLen;
+
+SPI_HandleTypeDef spi3;
+
 
 // to store calibration value of hum and temp
 int16_t h0_lsb = 0;
@@ -123,6 +133,9 @@ static void print_threshold_temp(void);
 static void LSM6DSL_AccGyroInit(void);
 static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_h0_rh, int16_t* p_h1_rh, int16_t* p_t0_lsb, int16_t* p_t1_lsb, int16_t* p_t0_degc, int16_t* p_t1_degc);
 
+static void RF_GPIO_Init();
+static void RF_SPI3_Init();
+
 int main(void)
 {
     HAL_Init();
@@ -139,35 +152,61 @@ int main(void)
     BSP_MAGNETO_Init();
     BSP_PSENSOR_Init();
 
+    // init for rf
+    RF_GPIO_Init();
+    RF_SPI3_Init();
+
+    SPSGRF_Init();
+    SpiritPktBasicSetDestinationAddress(0x44);
+
     // print Entering STANDBY MODE when going to STANDBY_MODE
     sprintf(uart_buffer, "Entering STANDBY MODE\r\n");
     HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
     while (1) {
-        button_press();
+#ifdef APPLICATION_TRANSMITTER
+        // Send the payload
+        xTxDoneFlag = S_RESET;
+        SPSGRF_StartTx(payload, strlen(payload));
+        while (!xTxDoneFlag)
+            ;
 
-        // read data if DRDY triggered
-        read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
-        read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
+        HAL_Delay(2000); // Block for 2000 ms
+#else
+        xRxDoneFlag = S_RESET;
+        SPSGRF_StartRx();
+        while (!xRxDoneFlag)
+            ;
 
-        switch (state) {
-        case STANDBY_MODE:
-            standby_mode(&state);
-            break;
-        case BATTLE_NO_LAST_OF_EE2028_MODE:
-            battle_no_last_of_ee2028_mode(&state);
-            break;
-        case BATTLE_LAST_OF_EE2028_MODE:
-            battle_last_of_ee2028_mode(&state);
-            break;
-        case DEAD_MODE:
-            dead_mode(&state);
-            break;
-        default:
-            // for debugging incase state somehow get here
-            led_blink(LED_10HZ);
-            break;
-        }
+        rxLen = SPSGRF_GetRxData(payload);
+        HAL_UART_Transmit(&huart2, "Received: ", 10, HAL_MAX_DELAY);
+        HAL_UART_Transmit(&huart2, payload, rxLen, HAL_MAX_DELAY);
+#endif // APPLICATION_TRANSMITTER
+
+        // button_press();
+
+        // // read data if DRDY triggered
+        // read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
+        // read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
+
+        // switch (state) {
+        // case STANDBY_MODE:
+        //     standby_mode(&state);
+        //     break;
+        // case BATTLE_NO_LAST_OF_EE2028_MODE:
+        //     battle_no_last_of_ee2028_mode(&state);
+        //     break;
+        // case BATTLE_LAST_OF_EE2028_MODE:
+        //     battle_last_of_ee2028_mode(&state);
+        //     break;
+        // case DEAD_MODE:
+        //     dead_mode(&state);
+        //     break;
+        // default:
+        //     // for debugging incase state somehow get here
+        //     led_blink(LED_10HZ);
+        //     break;
+        // }
     }
 }
 
@@ -437,6 +476,20 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     if (GPIO_Pin == GPIO_PIN_15) {
         hum_temp_ready = BOOL_SET;
     }
+
+    // rf
+    SpiritIrqs xIrqStatus;
+
+    SpiritIrqGetStatus(&xIrqStatus);
+    if (xIrqStatus.IRQ_TX_DATA_SENT) {
+        xTxDoneFlag = S_SET;
+    }
+    if (xIrqStatus.IRQ_RX_DATA_READY) {
+        xRxDoneFlag = S_SET;
+    }
+    if (xIrqStatus.IRQ_RX_DATA_DISC || xIrqStatus.IRQ_RX_TIMEOUT) {
+        SpiritCmdStrobeRx();
+    }
 }
 
 /**
@@ -577,33 +630,33 @@ static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thre
     if (hum_temp_ready == BOOL_SET) {
         int16_t H_T_out;
         uint8_t buffer[2];
-        float tmp_f; 
+        float tmp_f;
 
         // reading humidity
         SENSOR_IO_ReadMultiple(HTS221_I2C_ADDRESS, (HTS221_HR_OUT_L_REG | 0x80), buffer, 2);
 
         H_T_out = (((uint16_t)buffer[1]) << 8) | (uint16_t)buffer[0];
 
-        tmp_f = (float)(H_T_out - h0_lsb) * (float)(h1_rh - h0_rh) / (float)(h1_lsb - h0_lsb)  +  h0_rh;
+        tmp_f = (float)(H_T_out - h0_lsb) * (float)(h1_rh - h0_rh) / (float)(h1_lsb - h0_lsb) + h0_rh;
         tmp_f *= 10.0f;
 
-        tmp_f = ( tmp_f > 1000.0f ) ? 1000.0f
-                : ( tmp_f <    0.0f ) ?    0.0f
-                : tmp_f;
+        tmp_f = (tmp_f > 1000.0f) ? 1000.0f
+            : (tmp_f < 0.0f)      ? 0.0f
+                                  : tmp_f;
 
         *p_hum = (tmp_f / 10.0f); // returns as float in %
-        
+
         // reading temperature
         SENSOR_IO_ReadMultiple(HTS221_I2C_ADDRESS, (HTS221_TEMP_OUT_L_REG | 0x80), buffer, 2);
 
         H_T_out = (((uint16_t)buffer[1]) << 8) | (uint16_t)buffer[0];
 
-        *p_temp = (float)(H_T_out - t0_lsb) * (float)(t1_degc - t0_degc) / (float)(t1_lsb - t0_lsb)  +  t0_degc; // returns as float in deg c
+        *p_temp = (float)(H_T_out - t0_lsb) * (float)(t1_degc - t0_degc) / (float)(t1_lsb - t0_lsb) + t0_degc; // returns as float in deg c
 
         // flag threshold if the magnitude exceed
         *humidity_thres_flag = *p_hum < HUM_LOWER_THRES ? BOOL_SET : BOOL_CLR;
         *temp_thres_flag = *p_temp > TEMP_UPPER_THRES ? BOOL_SET : BOOL_CLR;
-        
+
         // clear the DRDY flag
         hum_temp_ready = BOOL_CLR;
     }
@@ -614,7 +667,8 @@ static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thre
  * @param None
  * @retval None
  */
-static void print_threshold_acc(void){
+static void print_threshold_acc(void)
+{
     if (acc_thres_flag == BOOL_SET) {
         // accel exceed print warning
         sprintf(uart_buffer, "|A|: %.2f ms-2 exceed threshold of %d ms-2\r\n", sqrt(pow(accel_data[0], 2) + pow(accel_data[1], 2) + pow(accel_data[2], 2)), ACCEL_UPPER_THRES);
@@ -627,7 +681,8 @@ static void print_threshold_acc(void){
  * @param None
  * @retval None
  */
-static void print_threshold_gyro(void){
+static void print_threshold_gyro(void)
+{
     if (gyro_thres_flag == BOOL_SET) {
         // gyro exceed print warning
         sprintf(uart_buffer, "|G|: %.2f dps exceed threshold of %d dps\r\n", sqrt(pow(gyro_data[0], 2) + pow(gyro_data[1], 2) + pow(gyro_data[2], 2)), GYRO_UPPER_THRES);
@@ -640,7 +695,8 @@ static void print_threshold_gyro(void){
  * @param None
  * @retval None
  */
-static void print_threshold_mag(void){
+static void print_threshold_mag(void)
+{
     if (mag_thres_flag == BOOL_SET) {
         // mag exceed print warning
         sprintf(uart_buffer, "|M|: %.2f mG exceed threshold of %d mG\r\n", sqrt(pow(mag_data[0], 2) + pow(mag_data[1], 2) + pow(mag_data[2], 2)), MAG_UPPER_THRES);
@@ -653,7 +709,8 @@ static void print_threshold_mag(void){
  * @param None
  * @retval None
  */
-static void print_threshold_hum(void){
+static void print_threshold_hum(void)
+{
     if (humidity_thres_flag == BOOL_SET) {
         // hum exceed print warning
         sprintf(uart_buffer, "H: %.2f%% exceed threshold of %d%%\r\n", humidity_data, HUM_LOWER_THRES);
@@ -666,7 +723,8 @@ static void print_threshold_hum(void){
  * @param None
  * @retval None
  */
-static void print_threshold_press(void){
+static void print_threshold_press(void)
+{
     if (pressure_thres_flag == BOOL_SET) {
         // press exceed print warning
         sprintf(uart_buffer, "P: %.2f kPa exceed threshold of %d kPa\r\n", pressure_data, PRESS_UPPER_THRES);
@@ -679,7 +737,8 @@ static void print_threshold_press(void){
  * @param None
  * @retval None
  */
-static void print_threshold_temp(void){
+static void print_threshold_temp(void)
+{
     if (temp_thres_flag == BOOL_SET) {
         // press exceed print warning
         sprintf(uart_buffer, "T: %.2f degC exceed threshold of %d degC\r\n", temp_data, TEMP_UPPER_THRES);
@@ -862,7 +921,7 @@ static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_
     tmp |= HTS221_PD_MASK;
 
     /* Apply settings to CTRL_REG1 */
-    SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1, tmp);   
+    SENSOR_IO_Write(HTS221_I2C_ADDRESS, HTS221_CTRL_REG1, tmp);
 
     /*
     read calibration register to reduce I2C overhead during reading
@@ -872,7 +931,7 @@ static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_
     // for hum
     // H0 * 2 and H1 * 2 in %
     SENSOR_IO_ReadMultiple(HTS221_I2C_ADDRESS, (HTS221_H0_RH_X2 | 0x80), buffer, 2);
-    
+
     // get H0 and H1 in %, rh = relative humidity
     *p_h0_rh = buffer[0] >> 1;
     *p_h1_rh = buffer[1] >> 1;
@@ -898,4 +957,62 @@ static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_
 
     *p_t0_lsb = (((uint16_t)buffer[1]) << 8) | (uint16_t)buffer[0];
     *p_t1_lsb = (((uint16_t)buffer[3]) << 8) | (uint16_t)buffer[2];
+}
+
+static void RF_GPIO_Init()
+{
+    GPIO_InitTypeDef GPIO_InitStruct = { 0 };
+
+    /* GPIO Ports Clock Enable */
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOH_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+
+    /*Configure GPIO pin Output Level */
+    HAL_GPIO_WritePin(SPSGRF_915_SDN_GPIO_Port, SPSGRF_915_SDN_Pin, GPIO_PIN_RESET);
+
+    /*Configure GPIO pin Output Level */
+    HAL_GPIO_WritePin(SPSGRF_915_SPI3_CSN_GPIO_Port, SPSGRF_915_SPI3_CSN_Pin, GPIO_PIN_RESET);
+
+    /*Configure GPIO pins : Shutdown Pin on SPSGRF SDN */
+    GPIO_InitStruct.Pin = SPSGRF_915_SDN_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(SPSGRF_915_SDN_GPIO_Port, &GPIO_InitStruct);
+
+    /*Configure GPIO pin : SPSGRF CS */
+    GPIO_InitStruct.Pin = SPSGRF_915_SPI3_CSN_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(SPSGRF_915_SPI3_CSN_GPIO_Port, &GPIO_InitStruct);
+
+    /*Configure GPIO pin : SPSGRF GPIO3 for EXTI */
+    GPIO_InitStruct.Pin = SPSGRF_915_GPIO3_EXTI5_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(SPSGRF_915_GPIO3_EXTI5_GPIO_Port, &GPIO_InitStruct);
+
+    /* EXTI interrupt init*/
+    HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+}
+
+static void RF_SPI3_Init()
+{
+    spi3.Instance = SPI3;
+    spi3.Init.Mode = SPI_MODE_MASTER;
+    spi3.Init.Direction = SPI_DIRECTION_2LINES;
+    spi3.Init.DataSize = SPI_DATASIZE_8BIT;
+    spi3.Init.CLKPolarity = SPI_POLARITY_LOW;
+    spi3.Init.CLKPhase = SPI_PHASE_1EDGE;
+    spi3.Init.NSS = SPI_NSS_SOFT;
+    spi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
+    spi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
+    spi3.Init.TIMode = SPI_TIMODE_DISABLE;
+    spi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+    spi3.Init.CRCPolynomial = 10;
+    HAL_SPI_Init(&spi3);
 }
