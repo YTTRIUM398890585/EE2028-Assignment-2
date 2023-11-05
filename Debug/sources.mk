@@ -30,5 +30,6 @@ Drivers/BSP/Components/hts221 \
 Drivers/BSP/Components/lis3mdl \
 Drivers/BSP/Components/lps22hb \
 Drivers/BSP/Components/lsm6dsl \
+Drivers/BSP/Components/spirit1/SPIRIT1_Library/Src \
 Drivers/STM32L4xx_HAL_Driver/Src \
 
