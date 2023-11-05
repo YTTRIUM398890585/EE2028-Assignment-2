@@ -147,10 +147,10 @@ int main(void)
     // must init this for I2C to configure the sensors
     SENSOR_IO_Init();
 
-    LSM6DSL_AccGyroInit();
-    HTS221_HumTempInit(&h0_lsb, &h1_lsb, &h0_rh, &h1_rh, &t0_lsb, &t1_lsb, &t0_degc, &t1_degc);
-    BSP_MAGNETO_Init();
-    BSP_PSENSOR_Init();
+    // LSM6DSL_AccGyroInit();
+    // HTS221_HumTempInit(&h0_lsb, &h1_lsb, &h0_rh, &h1_rh, &t0_lsb, &t1_lsb, &t0_degc, &t1_degc);
+    // BSP_MAGNETO_Init();
+    // BSP_PSENSOR_Init();
 
     // init for rf
     RF_GPIO_Init();
