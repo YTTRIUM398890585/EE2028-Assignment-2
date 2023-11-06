@@ -259,6 +259,8 @@ void Error_Handler(void);
 // EXTI priorities
 #define EXTI15_10_IRQn_PREEMPT_PRIO 0x00
 #define EXTI15_10_IRQn_SUB_PRIO 0x00
+#define EXTI9_5_IRQn_PREEMPT_PRIO 0x00
+#define EXTI9_5_IRQn_SUB_PRIO 0x00
 
 /* USER CODE END Private defines */
 
