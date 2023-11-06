@@ -84,7 +84,7 @@ MAGNETO_DrvTypeDef Lis3mdlMagDrv =
   *         that contains the configuration setting for the LIS3MDL.
   */
 void LIS3MDL_MagInit(MAGNETO_InitTypeDef LIS3MDL_InitStruct)
-{  
+{
   SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG1, LIS3MDL_InitStruct.Register1);
   SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG2, LIS3MDL_InitStruct.Register2);
   SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG3, LIS3MDL_InitStruct.Register3);

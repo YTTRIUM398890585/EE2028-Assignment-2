@@ -22,7 +22,7 @@
 #include "../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h"
 #include "../../Drivers/BSP/Components/lps22hb/lps22hb.h"
 
-
+#include "../../Drivers/BSP/Components/lis3mdl/lis3mdl.h"
 /* Variables -----------------------------------------------------------------*/
 /* States
 uint8_t to store 2 bits
@@ -106,7 +106,7 @@ static void button_press(void);
 static void read_ready_acc_gyro_d6d(float* p_acc, float* p_gyro, uint8_t* p_d6d, bool* p_acc_thres_flag, bool* p_gyro_thres_flag);
 static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thres_flag, bool* temp_thres_flag, int16_t h0_lsb, int16_t h1_lsb, int16_t h0_rh, int16_t h1_rh, int16_t t0_lsb, int16_t t1_lsb, int16_t t0_degc, int16_t t1_degc);
 
-static void read_mag(int16_t* p_mag);
+static void read_ready_mag(int16_t* p_mag, bool* mag_thres_flag);
 static void read_ready_pressure(float* p_pressureData, bool* p_pressure_thres_flag);
 
 static void print_threshold_acc(void);
@@ -120,8 +120,9 @@ static void LSM6DSL_AccGyroInit(void);
 static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_h0_rh, int16_t* p_h1_rh, int16_t* p_t0_lsb, int16_t* p_t1_lsb, int16_t* p_t0_degc, int16_t* p_t1_degc);
 static void LPS22HB_PressureInit();
 
-volatile uint32_t letching_check_tick = 0;
+volatile uint32_t latching_check_tick = 0;
 
+static void my_LIS3MDL_MagInit(void);
 
 int main(void)
 {
@@ -136,7 +137,7 @@ int main(void)
 
     LSM6DSL_AccGyroInit();
     HTS221_HumTempInit(&h0_lsb, &h1_lsb, &h0_rh, &h1_rh, &t0_lsb, &t1_lsb, &t0_degc, &t1_degc);
-    BSP_MAGNETO_Init();
+    my_LIS3MDL_MagInit();
     LPS22HB_PressureInit();
 
     // print Entering STANDBY MODE when going to STANDBY_MODE
@@ -150,18 +151,20 @@ int main(void)
         read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
         read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
         read_ready_pressure(&pressure_data, &pressure_thres_flag);
-
+        read_ready_mag(mag_data, &mag_thres_flag);
         // takes care of latching INT pins, when the ISR ran during reading and got cleared
-        if (HAL_GetTick() - letching_check_tick >= 1000) {
+        if (HAL_GetTick() - latching_check_tick >= 1000) {
             if (HAL_GPIO_ReadPin(LPS22HB_INT_DRDY_EXTI0_GPIO_Port, LPS22HB_INT_DRDY_EXTI0_Pin) == GPIO_PIN_SET) {
                 press_ready = BOOL_SET;
             }
 
             if (HAL_GPIO_ReadPin(HTS221_DRDY_EXTI15_GPIO_Port, HTS221_DRDY_EXTI15_Pin) == GPIO_PIN_SET) {
-                press_ready = BOOL_SET;
+                hum_temp_ready = BOOL_SET;
             }
-
-            letching_check_tick = HAL_GetTick();
+            if (HAL_GPIO_ReadPin(LIS3MDL_DRDY_EXTI8_GPIO_Port, LIS3MDL_DRDY_EXTI8_Pin) == GPIO_PIN_SET) {
+                mag_ready = BOOL_SET;
+            }
+            latching_check_tick = HAL_GetTick();
         }
         
         switch (state) {
@@ -221,7 +224,6 @@ static void standby_mode(uint8_t* p_state)
 
     // read GMPH telem and send UART @ 1 Hz
     if (HAL_GetTick() - last_telem_tick >= 1000) {
-        read_mag(mag_data);
 
         print_threshold_gyro();
         print_threshold_mag();
@@ -299,7 +301,7 @@ static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
 
     // read TPHAGM telem and send UART @ 1 Hz
     if (HAL_GetTick() - last_telem_tick >= 1000) {
-        read_mag(mag_data);
+        
 
         print_threshold_acc();
         print_threshold_gyro();
@@ -452,6 +454,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     if (GPIO_Pin == LPS22HB_INT_DRDY_EXTI0_Pin) {
         press_ready = BOOL_SET;
     }
+    // EXTI from LIS3MDL, flag to read Mag data
+    if (GPIO_Pin == GPIO_PIN_8) {
+        mag_ready = BOOL_SET;
+    }
 }
 
 /**
@@ -561,14 +567,20 @@ static void read_ready_acc_gyro_d6d(float* p_acc, float* p_gyro, uint8_t* p_d6d,
 /**
  * @brief read mag from LIS3MDL
  * @param int16_t* p_mag pointer to int16_t array of 3 elements
+ * @param bool* p_mag_thres_flag to pointer bool for threshold monitoring
  * @retval None
  */
-static void read_mag(int16_t* p_mag)
+static void read_ready_mag(int16_t* p_mag, bool* p_mag_thres_flag)
 {
     // the function that actually reads the xyz is LIS3MDL_MagReadXYZ in lis3mdl.c
     // the function also does sensitivity conversion to mGauss
     // returns int16_t in mGauss
-    LIS3MDL_MagReadXYZ(p_mag);
+	if (mag_ready == BOOL_SET){
+		LIS3MDL_MagReadXYZ(p_mag);
+		uint32_t magnitude = pow(*(p_mag), 2) + pow(*(p_mag + 1), 2) + pow(*(p_mag + 2), 2);
+		*p_mag_thres_flag = magnitude > MAG_SQR_UPPER_THRES ? BOOL_SET : BOOL_CLR;
+		mag_ready = BOOL_CLR;
+	}
 }
 
 /**
@@ -1034,4 +1046,43 @@ static void LPS22HB_PressureInit()
 
     /* Apply settings to CTRL_REG1 */
     SENSOR_IO_Write(LPS22HB_I2C_ADDRESS, LPS22HB_CTRL_REG1, tmp);
+}
+
+static void my_LIS3MDL_MagInit(void)
+{
+	/*Configuring GPIO for EXTI8 at PC8*/
+    GPIO_InitTypeDef GPIO_INIT_STRUCTURE;
+
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+
+    GPIO_INIT_STRUCTURE.Pin = GPIO_PIN_8;
+    GPIO_INIT_STRUCTURE.Pull = GPIO_PULLDOWN;
+    GPIO_INIT_STRUCTURE.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_INIT_STRUCTURE.Mode = GPIO_MODE_IT_RISING;
+
+    HAL_GPIO_Init(GPIOC, &GPIO_INIT_STRUCTURE);
+
+    // Setting up NVIC prempt and priority to handle interrupt
+    HAL_NVIC_SetPriority(LIS3MDL_DRDY_EXTI8_EXTI_IRQn, LIS3MDL_DRDY_EXTI8_EXTI_IRQn_PREEMPT_PRIO, LIS3MDL_DRDY_EXTI8_EXTI_IRQn_SUB_PRIO);
+    HAL_NVIC_EnableIRQ(LIS3MDL_DRDY_EXTI8_EXTI_IRQn);
+
+    /*Configuring control registers for initialisation*/
+    // CTRL_REG1
+    int8_t ctrl = LIS3MDL_MAG_TEMPSENSOR_DISABLE | LIS3MDL_MAG_OM_XY_HIGH | LIS3MDL_MAG_ODR_40_HZ;
+    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG1, ctrl);
+    // CTRL_REG2
+    ctrl = LIS3MDL_MAG_FS_4_GA | LIS3MDL_MAG_REBOOT_DEFAULT | LIS3MDL_MAG_SOFT_RESET_DEFAULT;
+    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG2, ctrl);
+    // CTRL_REG3
+    ctrl = LIS3MDL_MAG_CONFIG_NORMAL_MODE | LIS3MDL_MAG_CONTINUOUS_MODE;
+    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG3, ctrl);
+    // CTRL_REG4
+    ctrl = LIS3MDL_MAG_OM_Z_HIGH | LIS3MDL_MAG_BLE_LSB;
+    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG4, ctrl);
+    // CTRL_REG5
+    ctrl = LIS3MDL_MAG_BDU_MSBLSB;
+    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG5, ctrl);
+    // idk
+    // ctrl = 0xEA;
+    // SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_INT_CFG, ctrl);
 }
