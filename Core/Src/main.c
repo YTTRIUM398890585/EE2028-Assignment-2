@@ -66,7 +66,7 @@ bool acc_thres_flag = BOOL_CLR;
 bool gyro_thres_flag = BOOL_CLR;
 
 // magnetometer
-volatile bool mag_ready = BOOL_SET;
+volatile bool mag_ready = BOOL_CLR;
 int16_t mag_data[3];
 bool mag_thres_flag = BOOL_CLR;
 
@@ -120,7 +120,7 @@ static void LSM6DSL_AccGyroInit(void);
 static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_h0_rh, int16_t* p_h1_rh, int16_t* p_t0_lsb, int16_t* p_t1_lsb, int16_t* p_t0_degc, int16_t* p_t1_degc);
 static void LPS22HB_PressureInit();
 
-volatile uint32_t letching_check_tick = 0;
+volatile uint32_t latching_check_tick = 0;
 
 static void my_LIS3MDL_MagInit(void);
 
@@ -151,18 +151,20 @@ int main(void)
         read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
         read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
         read_ready_pressure(&pressure_data, &pressure_thres_flag);
-
+        read_ready_mag(mag_data, &mag_thres_flag);
         // takes care of latching INT pins, when the ISR ran during reading and got cleared
-        if (HAL_GetTick() - letching_check_tick >= 1000) {
+        if (HAL_GetTick() - latching_check_tick >= 1000) {
             if (HAL_GPIO_ReadPin(LPS22HB_INT_DRDY_EXTI0_GPIO_Port, LPS22HB_INT_DRDY_EXTI0_Pin) == GPIO_PIN_SET) {
                 press_ready = BOOL_SET;
             }
 
             if (HAL_GPIO_ReadPin(HTS221_DRDY_EXTI15_GPIO_Port, HTS221_DRDY_EXTI15_Pin) == GPIO_PIN_SET) {
-                press_ready = BOOL_SET;
+                hum_temp_ready = BOOL_SET;
             }
-
-            letching_check_tick = HAL_GetTick();
+            if (HAL_GPIO_ReadPin(LIS3MDL_DRDY_EXTI8_GPIO_Port, LIS3MDL_DRDY_EXTI8_Pin) == GPIO_PIN_SET) {
+                mag_ready = BOOL_SET;
+            }
+            latching_check_tick = HAL_GetTick();
         }
         
         switch (state) {
@@ -1061,8 +1063,8 @@ static void my_LIS3MDL_MagInit(void)
     HAL_GPIO_Init(GPIOC, &GPIO_INIT_STRUCTURE);
 
     // Setting up NVIC prempt and priority to handle interrupt
-    HAL_NVIC_SetPriority(EXTI9_5_IRQn, EXTI9_5_IRQn_PREEMPT_PRIO, EXTI9_5_IRQn_SUB_PRIO);
-    HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+    HAL_NVIC_SetPriority(LIS3MDL_DRDY_EXTI8_EXTI_IRQn, LIS3MDL_DRDY_EXTI8_EXTI_IRQn_PREEMPT_PRIO, LIS3MDL_DRDY_EXTI8_EXTI_IRQn_SUB_PRIO);
+    HAL_NVIC_EnableIRQ(LIS3MDL_DRDY_EXTI8_EXTI_IRQn);
 
     /*Configuring control registers for initialisation*/
     // CTRL_REG1
@@ -1081,6 +1083,6 @@ static void my_LIS3MDL_MagInit(void)
     ctrl = LIS3MDL_MAG_BDU_MSBLSB;
     SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG5, ctrl);
     // idk
-    ctrl = 0xEA;
-    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_INT_CFG, ctrl);
+    // ctrl = 0xEA;
+    // SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_INT_CFG, ctrl);
 }
