@@ -505,30 +505,34 @@ static void read_ready_acc_gyro_d6d(float* p_acc, float* p_gyro, uint8_t* p_d6d,
 {
     // only read when data is ready to reduce I2C overhead and unnecessary reads
     if (acc_gyro_d6d_ready == BOOL_SET) {
-        int16_t accel_data_i16[3] = { 0 }; // array to store the x, y and z readings.
-        LSM6DSL_AccReadXYZ(accel_data_i16); // read accelerometer
-        // the function above returns 16 bit integers which are acceleration in mg (9.8/1000 m/s^2).
-        // Converting to float in m/s^2
-        for (int i = 0; i < 3; i++) {
-            *(p_acc + i) = (float)accel_data_i16[i] * (9.8 / 1000.0f);
-        }
-
-        // the function does sensitivity conversion to mdps and returns float in mdps
-        LSM6DSL_GyroReadXYZAngRate(p_gyro);
-        // Converting to float in dps
-        for (int i = 0; i < 3; i++) {
-            *(p_gyro + i) = *(p_gyro + i) / 1000.0f;
-        }
-
-        // flag threshold if the magnitude exceed
-        float magnitude = pow(*(p_acc), 2) + pow(*(p_acc + 1), 2) + pow(*(p_acc + 2), 2);
-        *p_acc_thres_flag = (magnitude > ACCEL_SQR_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
-
-        magnitude = pow(*(p_gyro), 2) + pow(*(p_gyro + 1), 2) + pow(*(p_gyro + 2), 2);
-        *p_gyro_thres_flag = (magnitude > GYRO_SQR_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
-
         // read the D6D register to give the orientation
         *p_d6d = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_D6D_SRC);
+
+        // if the D6D_IA is not 1, means DRDY is for ACCEL/GYRO then read ACCEL/GYRO else skip
+        // by reading one register can prevent the read of many registers
+        if ((*p_d6d & 0x40) == 0) {
+            int16_t accel_data_i16[3] = { 0 }; // array to store the x, y and z readings.
+            LSM6DSL_AccReadXYZ(accel_data_i16); // read accelerometer
+            // the function above returns 16 bit integers which are acceleration in mg (9.8/1000 m/s^2).
+            // Converting to float in m/s^2
+            for (int i = 0; i < 3; i++) {
+                *(p_acc + i) = (float)accel_data_i16[i] * (9.8 / 1000.0f);
+            }
+
+            // the function does sensitivity conversion to mdps and returns float in mdps
+            LSM6DSL_GyroReadXYZAngRate(p_gyro);
+            // Converting to float in dps
+            for (int i = 0; i < 3; i++) {
+                *(p_gyro + i) = *(p_gyro + i) / 1000.0f;
+            }
+
+            // flag threshold if the magnitude exceed
+            float magnitude = pow(*(p_acc), 2) + pow(*(p_acc + 1), 2) + pow(*(p_acc + 2), 2);
+            *p_acc_thres_flag = (magnitude > ACCEL_SQR_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
+
+            magnitude = pow(*(p_gyro), 2) + pow(*(p_gyro + 1), 2) + pow(*(p_gyro + 2), 2);
+            *p_gyro_thres_flag = (magnitude > GYRO_SQR_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
+        }
 
         // clear the DRDY flag
         acc_gyro_d6d_ready = BOOL_CLR;
