@@ -3,6 +3,11 @@
         "stm32l475e_iot01_accelero.h": "c",
         "stm32l475e_iot01_gyro.h": "c",
         "stm32l475e_iot01_psensor.h": "c",
-        "stm32l475e_iot01_tsensor.h": "c"
+        "stm32l475e_iot01_tsensor.h": "c",
+        "stm32l4xx_hal.h": "c",
+        "lsm6dsl.h": "c",
+        "lps22hb.h": "c",
+        "stm32l475e_iot01_magneto.h": "c",
+        "hts221.h": "c"
     }
 }
