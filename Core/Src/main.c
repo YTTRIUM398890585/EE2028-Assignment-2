@@ -18,13 +18,13 @@
 
 // Sensors
 #include "../../Drivers/BSP/Components/hts221/hts221.h"
+#include "../../Drivers/BSP/Components/lis3mdl/lis3mdl.h"
 #include "../../Drivers/BSP/Components/lps22hb/lps22hb.h"
 #include "../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h"
-#include "../../Drivers/BSP/Components/lis3mdl/lis3mdl.h"
+
 
 // RF
 #include "spsgrf.h"
-#define APPLICATION_TRANSMITTER // comment out if programming the receiver
 
 /* Variables -----------------------------------------------------------------*/
 /* States
@@ -37,8 +37,13 @@ other values are not used, case default should take care of them and show
 something noticeable to aid in debug
 */
 uint8_t state = 0;
+uint8_t chg_to_state = 0;
 uint32_t last_of_ee2028_tick = 0;
 bool is_drone = BOOL_SET;
+bool chg_to_standby = BOOL_CLR;
+bool chg_to_battle = BOOL_CLR;
+bool charge_flag = BOOL_CLR;
+uint8_t gun_charge = 0;
 
 /* Button
 button_press_tick for the moment the button is pressed
@@ -87,11 +92,13 @@ bool humidity_thres_flag = BOOL_CLR;
 bool temp_thres_flag = BOOL_CLR;
 
 // for rf
-volatile SpiritFlagStatus xTxDoneFlag S_RESET;
-volatile SpiritFlagStatus xRxDoneFlag S_RESET;
+volatile SpiritFlagStatus xTxDoneFlag = S_RESET;
+volatile SpiritFlagStatus xRxDoneFlag = S_RESET;
 uint8_t spsgrf_buffer[SPSGRF_BUFFER_SIZE];
 
 SPI_HandleTypeDef spi3;
+
+uint32_t last_tx_tick = 0;
 
 // to store calibration value of hum and temp
 int16_t h0_lsb = 0;
@@ -165,23 +172,6 @@ int main(void)
     HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
     while (1) {
-#ifdef APPLICATION_TRANSMITTER
-        // Send the payload
-        if (xTxDoneFlag == S_SET) {
-            SPSGRF_StartTx(payload, strlen(payload));
-            xTxDoneFlag = S_RESET;
-        }
-#else
-        
-        SPSGRF_StartRx();
-        while (!xRxDoneFlag)
-            ;
-
-        rxLen = SPSGRF_GetRxData(payload);
-        HAL_UART_Transmit(&huart2, "Received: ", 10, HAL_MAX_DELAY);
-        HAL_UART_Transmit(&huart2, payload, rxLen, HAL_MAX_DELAY);
-#endif // APPLICATION_TRANSMITTER
-
         button_press();
 
         if (is_drone == BOOL_SET) {
@@ -190,28 +180,82 @@ int main(void)
             read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
             read_ready_pressure(&pressure_data, &pressure_thres_flag);
             read_ready_mag(mag_data, &mag_thres_flag);
-        } else {
-            // read data from SPSGRF if it is a station and Rx data is ready
+
+            // read data from station if it is a drone and Rx data is ready
             if (xRxDoneFlag == S_SET) {
                 SPSGRF_StartRx();
                 uint8_t rxLen = SPSGRF_GetRxData(spsgrf_buffer);
 
                 // double checks the length just in case
-                if(rxLen == TELEM_NBYTES) {
+                if (rxLen == CONTORL_NBYTES) {
+                    // update drone state based on station request
+                    chg_to_state = spsgrf_buffer[0] & STATE_MSK;
+
+                    chg_to_standby = chg_to_state == STANDBY_MODE && state != STANDBY_MODE ? BOOL_SET : BOOL_CLR;
+                    chg_to_battle = chg_to_state == BATTLE_NO_LAST_OF_EE2028_MODE && state != BATTLE_NO_LAST_OF_EE2028_MODE ? BOOL_SET : BOOL_CLR;
+
+                    // flag charge to charge if station request
+                    charge_flag = spsgrf_buffer[0] & CHARGE_REQ_MSK;
+                }
+            }
+        } else {
+            // read data from drone if it is a station and Rx data is ready
+            if (xRxDoneFlag == S_SET) {
+                SPSGRF_StartRx();
+                uint8_t rxLen = SPSGRF_GetRxData(spsgrf_buffer);
+
+                uint8_t status[STATUS_NBYTES];
+
+                // double checks the length just in case
+                if (rxLen == TELEM_NBYTES) {
                     memcpy(&pressure_data, spsgrf_buffer, sizeof(PRESSURE_NBYTES));
                     memcpy(&temp_data, (spsgrf_buffer + PRESSURE_NBYTES), sizeof(TEMP_NBYTES));
                     memcpy(&humidity_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES), sizeof(HUMIDITY_NBYTES));
                     memcpy(accel_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), sizeof(ACCEL_NBYTES));
                     memcpy(gyro_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), sizeof(GYRO_NBYTES));
                     memcpy(mag_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), sizeof(MAG_NBYTES));
-                    memcpy(&state, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), sizeof(STATE_NBYTES));
+                    memcpy(&status, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), sizeof(STATUS_NBYTES));
+
+                    state = status[0] & STATE_MSK;
+                    gun_charge = status[0] & CHARGES_MSK;
+                    pressure_thres_flag = status[1] & P_TH_MSK;
+                    temp_thres_flag = status[1] & H_TH_MSK;
+                    humidity_thres_flag = status[1] & H_TH_MSK;
+                    acc_thres_flag = status[1] & A_TH_MSK;
+                    gyro_thres_flag = status[1] & G_TH_MSK;
+                    mag_thres_flag = status[1] & M_TH_MSK;
                 }
 
                 xRxDoneFlag = S_RESET;
             }
-            
         }
-        
+
+        // Tx data every 10ms and if last Tx is sent
+        if (HAL_GetTick() - last_tx_tick >= 10 && xTxDoneFlag == S_SET) {
+            if (is_drone == BOOL_SET) {
+                // drone will send back telem and status
+                uint8_t status[STATUS_NBYTES];
+
+                status[0] = ((gun_charge & 0x0F) << CHARGE_POS) | ((state & 0x0F) << STATE_POS);
+                status[1] = ((((uint8_t)pressure_thres_flag) & 0x01) << P_TH_POS) | ((((uint8_t)temp_thres_flag) & 0x01) << T_TH_POS) | ((((uint8_t)humidity_thres_flag) & 0x01) << H_TH_POS) | ((((uint8_t)acc_thres_flag) & 0x01) << A_TH_POS) | ((((uint8_t)gyro_thres_flag) & 0x01) << G_TH_POS) | ((((uint8_t)mag_thres_flag) & 0x01) << M_TH_POS);
+
+                memcpy(spsgrf_buffer, &pressure_data, sizeof(PRESSURE_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES), &temp_data, sizeof(TEMP_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES), &humidity_data, sizeof(HUMIDITY_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), accel_data, sizeof(ACCEL_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), gyro_data, sizeof(GYRO_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), mag_data, sizeof(MAG_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), &status, sizeof(STATUS_NBYTES));
+
+            } else {
+                // station will send change of state request, charge request
+                spsgrf_buffer[0] = ((((uint8_t)charge_flag) & 0x01) << CHARGE_POS) | ((chg_to_state & STATE_MSK) << STATE_POS);
+            }
+
+            SPSGRF_StartTx(spsgrf_buffer, strlen(spsgrf_buffer));
+            xTxDoneFlag = S_RESET;
+        }
+
         // takes care of latching INT pins, when the ISR ran during reading and got cleared
         if (HAL_GetTick() - latching_check_tick >= 1000) {
             if (HAL_GPIO_ReadPin(LPS22HB_INT_DRDY_EXTI0_GPIO_Port, LPS22HB_INT_DRDY_EXTI0_Pin) == GPIO_PIN_SET) {
@@ -253,8 +297,8 @@ int main(void)
 static void standby_mode(uint8_t* p_state)
 {
     // in STANDBY_MODE, double press to enter BATTLE_NO_LAST_OF_EE2028_MODE
-    if (double_press) {
-        if (is_drone == BOOL_SET) {
+    if (is_drone == BOOL_SET) {
+        if (double_press || chg_to_battle) {
             // if upside down, go to BATTLE_LAST_OF_EE2028_MODE else BATTLE_NO_LAST_OF_EE2028_MODE
             uint8_t d6d_src = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_D6D_SRC);
 
@@ -270,16 +314,22 @@ static void standby_mode(uint8_t* p_state)
             HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
             last_telem_tick = 0;
-            return; 
-        } else {
-            // TODO: send change state to drone
-        }
 
-        // clear flag
-        double_press = BOOL_CLR;
+            // clear flag
+            chg_to_battle = BOOL_CLR;
+            double_press = BOOL_CLR;
+            return;
+        }
+    } else {
+        if (double_press) {
+            chg_to_state = BATTLE_NO_LAST_OF_EE2028_MODE;
+
+            // clear flag
+            double_press = BOOL_CLR;
+        }
     }
 
-    // in STANDBY_MODE, single press change between drone and station
+    // in STANDBY_MODE, single press changes between drone and station
     if (single_press) {
         is_drone = !is_drone;
 
@@ -288,24 +338,32 @@ static void standby_mode(uint8_t* p_state)
         temp_data = 0;
         humidity_data = 0;
         accel_data[0] = 0;
-        accel_data[1] = 0; 
-        accel_data[2] = 0; 
+        accel_data[1] = 0;
+        accel_data[2] = 0;
         gyro_data[0] = 0;
         gyro_data[1] = 0;
         gyro_data[2] = 0;
         mag_data[0] = 0;
         mag_data[1] = 0;
         mag_data[2] = 0;
+        gun_charge = 0;
+        pressure_thres_flag = 0;
+        temp_thres_flag = 0;
+        humidity_thres_flag = 0;
+        acc_thres_flag = 0;
+        gyro_thres_flag = 0;
+        mag_thres_flag = 0;
+        chg_to_state = STANDBY_MODE;
 
         // print out status
         if (is_drone == BOOL_SET) {
-            sprintf(uart_buffer, "I'm a drone, wroom wroom");
+            sprintf(uart_buffer, "I'm a drone, wroom wroom\r\n");
             HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
         } else {
-            sprintf(uart_buffer, "I'm a station");
+            sprintf(uart_buffer, "I'm a station\r\n");
             HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
         }
-        
+
         // reset the flag
         single_press = BOOL_CLR;
     }
@@ -339,8 +397,7 @@ static void standby_mode(uint8_t* p_state)
 }
 
 static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
-{   
-    static uint8_t gun_charge = 0;
+{
     if (gun_charge > 10) {
         // incase somehow charge gets more than 10, cap at 10/10
         gun_charge = 10;
@@ -365,31 +422,9 @@ static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
             last_of_ee2028_tick = HAL_GetTick();
             return;
         }
-    }
 
-    // in BATTLE_NO_LAST_OF_EE2028_MODE, double press to enter STANDBY_MODE
-    if (double_press) {
-        if (is_drone == BOOL_SET) {
-            // goes to STANDBY_MODE
-            *p_state = STANDBY_MODE;
-
-            // print Entering STANDBY MODE when going to STANDBY_MODE
-            sprintf(uart_buffer, "Entering STANDBY MODE\r\n");
-            HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-            last_telem_tick = 0;
-
-            return;
-        } else {
-            // TODO: send change state to drone
-        }
-
-        // clear flag
-        double_press = BOOL_CLR;
-    }
-
-    // in BATTLE_NO_LAST_OF_EE2028_MODE, single press charge gun by 3
-    if (single_press) {
-        if (is_drone == BOOL_SET) {
+        // in BATTLE_NO_LAST_OF_EE2028_MODE, single press charge gun by 3
+        if (single_press || charge_flag) {
             gun_charge += 3;
 
             // print gun status
@@ -398,14 +433,46 @@ static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
                 (10 - gun_charge) * 3, "[ ][ ][ ][ ][ ][ ][ ][ ][ ][ ]",
                 gun_charge * 10);
             HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-        } else {
-            // TODO: send charge gun to drone
-        }
 
-        // clear flag
-        single_press = BOOL_CLR;
+            // clear flag
+            single_press = BOOL_CLR;
+            charge_flag = BOOL_CLR;
+        }
+    } else {
+        if (single_press) {
+            // will send charge request in the next Tx
+            charge_flag = BOOL_SET;
+
+            // clear flag
+            single_press = BOOL_CLR;
+        }
     }
-    
+
+    // in BATTLE_NO_LAST_OF_EE2028_MODE, double press to enter STANDBY_MODE
+    if (is_drone == BOOL_SET) {
+        if (double_press || chg_to_standby) {
+            // goes to STANDBY_MODE
+            *p_state = STANDBY_MODE;
+
+            // print Entering STANDBY MODE when going to STANDBY_MODE
+            sprintf(uart_buffer, "Entering STANDBY MODE\r\n");
+            HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+            last_telem_tick = 0;
+
+            // clear flag
+            chg_to_standby = BOOL_CLR;
+            double_press = BOOL_CLR;
+
+            return;
+        }
+    } else {
+        if (double_press) {
+            chg_to_state = STANDBY_MODE;
+
+            // clear flag
+            double_press = BOOL_CLR;
+        }
+    }
 
     // read TPHAGM telem and send UART @ 1 Hz
     if (HAL_GetTick() - last_telem_tick >= 1000) {
@@ -459,7 +526,7 @@ static void battle_last_of_ee2028_mode(uint8_t* p_state)
     // in BATTLE_LAST_OF_EE2028_MODE, double press within 10 s to enter BATTLE_NO_LAST_OF_EE2028_MODE else DEAD_MODE
     if (is_drone == BOOL_SET) {
         if (HAL_GetTick() - last_of_ee2028_tick <= 10000) {
-            if (double_press) {
+            if (double_press || chg_to_battle) {
                 uint8_t d6d_src = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_D6D_SRC);
 
                 // if not upside down, go to BATTLE_NO_LAST_OF_EE2028_MODE
@@ -470,6 +537,7 @@ static void battle_last_of_ee2028_mode(uint8_t* p_state)
                 }
 
                 double_press = BOOL_CLR;
+                chg_to_battle = BOOL_CLR;
                 return;
             }
         } else {
@@ -480,9 +548,12 @@ static void battle_last_of_ee2028_mode(uint8_t* p_state)
             return;
         }
     } else {
-        // TODO: send change state to drone or rescue the dorne
+        if (double_press) {
+            chg_to_state = BATTLE_NO_LAST_OF_EE2028_MODE;
+            double_press = BOOL_CLR;
+        }
     }
-    
+
     // in BATTLE_LAST_OF_EE2028_MODE, LED blinks at 2 Hz
     led_blink(LED_2HZ);
 }
@@ -492,21 +563,37 @@ static void dead_mode(uint8_t* p_state)
     // in DEAD_MODE, LED blinks at 2 Hz
     led_blink(LED_2HZ);
 
-    // in DEAD_MODE, double press does nothing
-    if (double_press) {
-        // does nothing, but still need to reset the flag
-        double_press = BOOL_CLR;
-    }
+    if (is_drone == BOOL_SET) {
+        // in DEAD_MODE, double press does nothing
+        if (double_press) {
+            // does nothing, but still need to reset the flag
+            double_press = BOOL_CLR;
+        }
 
-    // in DEAD_MODE, single press does nothing
-    if (single_press) {
-        // does nothing, but still need to reset the flag
-        single_press = BOOL_CLR;
-    }
+        // in DEAD_MODE, single press does nothing
+        if (single_press) {
+            // does nothing, but still need to reset the flag
+            single_press = BOOL_CLR;
+        }
 
-    // station can revive the drone magically
-    if (is_drone == BOOL_CLR) {
-        // TODO uart to revive drone
+        // drone magically revived by station
+        if (chg_to_state == BATTLE_NO_LAST_OF_EE2028_MODE) {
+            *p_state = BATTLE_NO_LAST_OF_EE2028_MODE;
+            sprintf(uart_buffer, "Magically revived through the power of friendship :O\r\n");
+            HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+        }
+    } else {
+        // in DEAD_MODE, double press does nothing
+        if (double_press) {
+            // does nothing, but still need to reset the flag
+            double_press = BOOL_CLR;
+        }
+
+        // station can revive the drone magically by single press or UART
+        if (single_press) {
+            chg_to_state = BATTLE_NO_LAST_OF_EE2028_MODE;
+            single_press = BOOL_CLR;
+        }
     }
 }
 

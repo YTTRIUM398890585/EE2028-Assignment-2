@@ -257,6 +257,7 @@ void Error_Handler(void);
 #define TEMP_UPPER_THRES 30 // 40 degC
 
 // SPSGRF Stuffs
+// for drone to station
 #define SPSGRF_BUFFER_SIZE 64
 #define PRESSURE_NBYTES 4
 #define TEMP_NBYTES 4
@@ -264,8 +265,33 @@ void Error_Handler(void);
 #define ACCEL_NBYTES 12
 #define GYRO_NBYTES 12
 #define MAG_NBYTES 6
-#define STATE_NBYTES 1
-#define TELEM_NBYTES PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES + STATE_NBYTES
+#define STATUS_NBYTES 2
+#define TELEM_NBYTES PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES + STATUS_NBYTES
+
+// STATE_NBYTES[0] [1:0] = drone states
+// STATE_NBYTES[0] [5:2] = drone charge
+// STATE_NBYTES[1] [5:0] = threshold for pressure, temp, hum, accel, gyro, mag
+#define STATE_MSK 0x03
+#define CHARGES_MSK 0x3C
+#define P_TH_MSK 0x20
+#define T_TH_MSK 0x10
+#define H_TH_MSK 0x08
+#define A_TH_MSK 0x04
+#define G_TH_MSK 0x02
+#define M_TH_MSK 0x01
+#define P_TH_POS 5
+#define T_TH_POS 4
+#define H_TH_POS 3
+#define A_TH_POS 2
+#define G_TH_POS 1
+#define M_TH_POS 0
+
+// for station to drone
+#define CONTORL_NBYTES 1
+#define CHARGE_REQ_MSK 0x10
+#define STATE_POS 0
+#define CHARGE_POS 4
+
 
 // EXTI priorities
 #define EXTI15_10_IRQn_PREEMPT_PRIO 0x01

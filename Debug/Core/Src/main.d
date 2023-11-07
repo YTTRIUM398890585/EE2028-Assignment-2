@@ -40,14 +40,14 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Core/Src/../../Drivers/BSP/Components/hts221/hts221.h \
  ../Core/Src/../../Drivers/BSP/Components/hts221/../Common/hsensor.h \
  ../Core/Src/../../Drivers/BSP/Components/hts221/../Common/tsensor.h \
+ ../Core/Src/../../Drivers/BSP/Components/lis3mdl/lis3mdl.h \
+ ../Core/Src/../../Drivers/BSP/Components/lis3mdl/../Common/magneto.h \
  ../Core/Src/../../Drivers/BSP/Components/lps22hb/lps22hb.h \
  ../Core/Src/../../Drivers/BSP/Components/lps22hb/../Common/psensor.h \
  ../Core/Src/../../Drivers/BSP/Components/lps22hb/../Common/tsensor.h \
  ../Core/Src/../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h \
  ../Core/Src/../../Drivers/BSP/Components/lsm6dsl/../Common/accelero.h \
  ../Core/Src/../../Drivers/BSP/Components/lsm6dsl/../Common/gyro.h \
- ../Core/Src/../../Drivers/BSP/Components/lis3mdl/lis3mdl.h \
- ../Core/Src/../../Drivers/BSP/Components/lis3mdl/../Common/magneto.h \
  ../Core/Inc/spsgrf.h \
  ../Core/Inc/../../Drivers/BSP/Components/spirit1/SPIRIT1_Library/Inc/SPIRIT_Config.h \
  ../Core/Inc/../../Drivers/BSP/Components/spirit1/SPIRIT1_Library/Inc/SPIRIT_Regs.h \
@@ -113,14 +113,14 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Core/Src/../../Drivers/BSP/Components/hts221/hts221.h:
 ../Core/Src/../../Drivers/BSP/Components/hts221/../Common/hsensor.h:
 ../Core/Src/../../Drivers/BSP/Components/hts221/../Common/tsensor.h:
+../Core/Src/../../Drivers/BSP/Components/lis3mdl/lis3mdl.h:
+../Core/Src/../../Drivers/BSP/Components/lis3mdl/../Common/magneto.h:
 ../Core/Src/../../Drivers/BSP/Components/lps22hb/lps22hb.h:
 ../Core/Src/../../Drivers/BSP/Components/lps22hb/../Common/psensor.h:
 ../Core/Src/../../Drivers/BSP/Components/lps22hb/../Common/tsensor.h:
 ../Core/Src/../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h:
 ../Core/Src/../../Drivers/BSP/Components/lsm6dsl/../Common/accelero.h:
 ../Core/Src/../../Drivers/BSP/Components/lsm6dsl/../Common/gyro.h:
-../Core/Src/../../Drivers/BSP/Components/lis3mdl/lis3mdl.h:
-../Core/Src/../../Drivers/BSP/Components/lis3mdl/../Common/magneto.h:
 ../Core/Inc/spsgrf.h:
 ../Core/Inc/../../Drivers/BSP/Components/spirit1/SPIRIT1_Library/Inc/SPIRIT_Config.h:
 ../Core/Inc/../../Drivers/BSP/Components/spirit1/SPIRIT1_Library/Inc/SPIRIT_Regs.h:
