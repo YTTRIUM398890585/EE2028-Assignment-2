@@ -42,34 +42,34 @@ $(wildcard ../makefile.init) \
 $(wildcard ../makefile.targets) \
 
 
-BUILD_ARTIFACT_NAME := Assignment 2 Integration
+BUILD_ARTIFACT_NAME := EE2028-Assignment-2
 BUILD_ARTIFACT_EXTENSION := elf
 BUILD_ARTIFACT_PREFIX :=
 BUILD_ARTIFACT := $(BUILD_ARTIFACT_PREFIX)$(BUILD_ARTIFACT_NAME)$(if $(BUILD_ARTIFACT_EXTENSION),.$(BUILD_ARTIFACT_EXTENSION),)
 
 # Add inputs and outputs from these tool invocations to the build variables 
 EXECUTABLES += \
-Assignment\ 2\ Integration.elf \
+EE2028-Assignment-2.elf \
 
 MAP_FILES += \
-Assignment\ 2\ Integration.map \
+EE2028-Assignment-2.map \
 
 SIZE_OUTPUT += \
 default.size.stdout \
 
 OBJDUMP_LIST += \
-Assignment\ 2\ Integration.list \
+EE2028-Assignment-2.list \
 
 
 # All Target
 all: main-build
 
 # Main-build Target
-main-build: Assignment\ 2\ Integration.elf secondary-outputs
+main-build: EE2028-Assignment-2.elf secondary-outputs
 
 # Tool invocations
-Assignment\ 2\ Integration.elf Assignment\ 2\ Integration.map: $(OBJS) $(USER_OBJS) C:\University\ Stuff\Y2S1\EE2028\EE2028_STM_CUBE_WS\Assignment\ 2\ Integration\STM32L475VGTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Assignment 2 Integration.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\University Stuff\Y2S1\EE2028\EE2028_STM_CUBE_WS\Assignment 2 Integration\STM32L475VGTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Assignment 2 Integration.map" -Wl,--gc-sections -static -specs=rdimon.specs --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+EE2028-Assignment-2.elf EE2028-Assignment-2.map: $(OBJS) $(USER_OBJS) C:\Users\Irwin\STM32CubeIDE\EE2028\EE2028-Assignment-2\STM32L475VGTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "EE2028-Assignment-2.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\Irwin\STM32CubeIDE\EE2028\EE2028-Assignment-2\STM32L475VGTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="EE2028-Assignment-2.map" -Wl,--gc-sections -static -specs=rdimon.specs --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -78,14 +78,14 @@ default.size.stdout: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	@echo 'Finished building: $@'
 	@echo ' '
 
-Assignment\ 2\ Integration.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "Assignment 2 Integration.list"
+EE2028-Assignment-2.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "EE2028-Assignment-2.list"
 	@echo 'Finished building: $@'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) Assignment\ 2\ Integration.elf Assignment\ 2\ Integration.list Assignment\ 2\ Integration.map Assignment\\ 2\\ Integration.elf default.size.stdout
+	-$(RM) EE2028-Assignment-2.elf EE2028-Assignment-2.list EE2028-Assignment-2.map default.size.stdout
 	-@echo ' '
 
 secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)
