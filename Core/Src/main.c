@@ -13,16 +13,14 @@
 #include "stdio.h"
 #include "string.h"
 
-// button, led and HTS221
+// button and led
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01.h"
+
+// Sensors
 #include "../../Drivers/BSP/Components/hts221/hts221.h"
-
-// for accel and gyro read
+#include "../../Drivers/BSP/Components/lps22hb/lps22hb.h"
 #include "../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h"
-
-// Sensors (to be changed after adding custom init)
-#include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_magneto.h"
-#include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_psensor.h"
+#include "../../Drivers/BSP/Components/lis3mdl/lis3mdl.h"
 
 // RF
 #include "spsgrf.h"
@@ -76,7 +74,7 @@ int16_t mag_data[3];
 bool mag_thres_flag = BOOL_CLR;
 
 // pressure
-volatile bool press_ready = BOOL_CLR;
+volatile bool press_ready = BOOL_SET; // needed to kick start read;
 float pressure_data;
 bool pressure_thres_flag = BOOL_CLR;
 
@@ -120,8 +118,8 @@ static void button_press(void);
 static void read_ready_acc_gyro_d6d(float* p_acc, float* p_gyro, uint8_t* p_d6d, bool* p_acc_thres_flag, bool* p_gyro_thres_flag);
 static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thres_flag, bool* temp_thres_flag, int16_t h0_lsb, int16_t h1_lsb, int16_t h0_rh, int16_t h1_rh, int16_t t0_lsb, int16_t t1_lsb, int16_t t0_degc, int16_t t1_degc);
 
-static void read_mag(int16_t* p_mag);
-static float read_pressure(void);
+static void read_ready_mag(int16_t* p_mag, bool* mag_thres_flag);
+static void read_ready_pressure(float* p_pressureData, bool* p_pressure_thres_flag);
 
 static void print_threshold_acc(void);
 static void print_threshold_gyro(void);
@@ -132,6 +130,10 @@ static void print_threshold_temp(void);
 
 static void LSM6DSL_AccGyroInit(void);
 static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_h0_rh, int16_t* p_h1_rh, int16_t* p_t0_lsb, int16_t* p_t1_lsb, int16_t* p_t0_degc, int16_t* p_t1_degc);
+static void my_LIS3MDL_MagInit(void);
+static void LPS22HB_PressureInit(void);
+
+volatile uint32_t latching_check_tick = 0;
 
 static void RF_GPIO_Init();
 static void RF_SPI3_Init();
@@ -149,8 +151,8 @@ int main(void)
 
     // LSM6DSL_AccGyroInit();
     // HTS221_HumTempInit(&h0_lsb, &h1_lsb, &h0_rh, &h1_rh, &t0_lsb, &t1_lsb, &t0_degc, &t1_degc);
-    // BSP_MAGNETO_Init();
-    // BSP_PSENSOR_Init();
+    // my_LIS3MDL_MagInit();
+    // LPS22HB_PressureInit();
 
     // init for rf
     RF_GPIO_Init();
@@ -188,6 +190,23 @@ int main(void)
         // // read data if DRDY triggered
         // read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
         // read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
+        read_ready_pressure(&pressure_data, &pressure_thres_flag);
+        read_ready_mag(mag_data, &mag_thres_flag);
+        // takes care of latching INT pins, when the ISR ran during reading and got cleared
+        if (HAL_GetTick() - latching_check_tick >= 1000) {
+            if (HAL_GPIO_ReadPin(LPS22HB_INT_DRDY_EXTI0_GPIO_Port, LPS22HB_INT_DRDY_EXTI0_Pin) == GPIO_PIN_SET) {
+                press_ready = BOOL_SET;
+            }
+
+            if (HAL_GPIO_ReadPin(HTS221_DRDY_EXTI15_GPIO_Port, HTS221_DRDY_EXTI15_Pin) == GPIO_PIN_SET) {
+                hum_temp_ready = BOOL_SET;
+            }
+
+            if (HAL_GPIO_ReadPin(LIS3MDL_DRDY_EXTI8_GPIO_Port, LIS3MDL_DRDY_EXTI8_Pin) == GPIO_PIN_SET) {
+                mag_ready = BOOL_SET;
+            }
+            latching_check_tick = HAL_GetTick();
+        }
 
         // switch (state) {
         // case STANDBY_MODE:
@@ -246,8 +265,6 @@ static void standby_mode(uint8_t* p_state)
 
     // read GMPH telem and send UART @ 1 Hz
     if (HAL_GetTick() - last_telem_tick >= 1000) {
-        read_mag(mag_data);
-        pressure_data = read_pressure();
 
         print_threshold_gyro();
         print_threshold_mag();
@@ -325,8 +342,6 @@ static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
 
     // read TPHAGM telem and send UART @ 1 Hz
     if (HAL_GetTick() - last_telem_tick >= 1000) {
-        pressure_data = read_pressure();
-        read_mag(mag_data);
 
         print_threshold_acc();
         print_threshold_gyro();
@@ -375,8 +390,6 @@ static void battle_last_of_ee2028_mode(uint8_t* p_state)
         HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
         last_telem_tick = HAL_GetTick();
     }
-
-    // TODO Disable interupt for telem monitoring
 
     // in STANDBY_MODE, single press does nothing
     if (single_press) {
@@ -468,13 +481,22 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     }
 
     // EXTI from LSM6DSL, flag to read Accel Data, Gyro Data and LSM6DSL_ACC_GYRO_D6D_SRC
-    if (GPIO_Pin == GPIO_PIN_11) {
+    if (GPIO_Pin == LSM6DSL_INT1_EXTI11_Pin) {
         acc_gyro_d6d_ready = BOOL_SET;
     }
 
     // EXTI from HTS221, flag to read Humidity and Temperature
-    if (GPIO_Pin == GPIO_PIN_15) {
+    if (GPIO_Pin == HTS221_DRDY_EXTI15_Pin) {
         hum_temp_ready = BOOL_SET;
+    }
+
+    // EXTI from LPS22HB, flag to read Pressure
+    if (GPIO_Pin == LPS22HB_INT_DRDY_EXTI0_Pin) {
+        press_ready = BOOL_SET;
+    }
+    // EXTI from LIS3MDL, flag to read Mag data
+    if (GPIO_Pin == GPIO_PIN_8) {
+        mag_ready = BOOL_SET;
     }
 
     // rf
@@ -550,6 +572,7 @@ static void led_blink(uint32_t period)
 /**
  * @brief read acc, gyro, d6d from LSM6DSL when DRDY is flagged
  *        using LSM6DSL.C straight as BSP is bypasssed in init
+ *        uses D6D_IA in D6D to decide to read accel/gyro or not
  * @param p_acc pointer to float array of 3 elements for accel
  * @param p_gyro pointer to float array of 3 elements for gyro
  * @param p_d6d pointer uint8_t for the orientation
@@ -561,30 +584,34 @@ static void read_ready_acc_gyro_d6d(float* p_acc, float* p_gyro, uint8_t* p_d6d,
 {
     // only read when data is ready to reduce I2C overhead and unnecessary reads
     if (acc_gyro_d6d_ready == BOOL_SET) {
-        int16_t accel_data_i16[3] = { 0 }; // array to store the x, y and z readings.
-        LSM6DSL_AccReadXYZ(accel_data_i16); // read accelerometer
-        // the function above returns 16 bit integers which are acceleration in mg (9.8/1000 m/s^2).
-        // Converting to float in m/s^2
-        for (int i = 0; i < 3; i++) {
-            *(p_acc + i) = (float)accel_data_i16[i] * (9.8 / 1000.0f);
-        }
-
-        // the function does sensitivity conversion to mdps and returns float in mdps
-        LSM6DSL_GyroReadXYZAngRate(p_gyro);
-        // Converting to float in dps
-        for (int i = 0; i < 3; i++) {
-            *(p_gyro + i) = *(p_gyro + i) / 1000.0f;
-        }
-
-        // flag threshold if the magnitude exceed
-        float magnitude = pow(*(p_acc), 2) + pow(*(p_acc + 1), 2) + pow(*(p_acc + 2), 2);
-        *p_acc_thres_flag = (magnitude > ACCEL_SQR_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
-
-        magnitude = pow(*(p_gyro), 2) + pow(*(p_gyro + 1), 2) + pow(*(p_gyro + 2), 2);
-        *p_gyro_thres_flag = (magnitude > GYRO_SQR_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
-
         // read the D6D register to give the orientation
         *p_d6d = SENSOR_IO_Read(LSM6DSL_ACC_GYRO_I2C_ADDRESS_LOW, LSM6DSL_ACC_GYRO_D6D_SRC);
+
+        // if the D6D_IA is not 1, means DRDY is for ACCEL/GYRO then read ACCEL/GYRO else skip
+        // by reading one register can prevent the read of many registers
+        if ((*p_d6d & 0x40) == 0) {
+            int16_t accel_data_i16[3] = { 0 }; // array to store the x, y and z readings.
+            LSM6DSL_AccReadXYZ(accel_data_i16); // read accelerometer
+            // the function above returns 16 bit integers which are acceleration in mg (9.8/1000 m/s^2).
+            // Converting to float in m/s^2
+            for (int i = 0; i < 3; i++) {
+                *(p_acc + i) = (float)accel_data_i16[i] * (9.8 / 1000.0f);
+            }
+
+            // the function does sensitivity conversion to mdps and returns float in mdps
+            LSM6DSL_GyroReadXYZAngRate(p_gyro);
+            // Converting to float in dps
+            for (int i = 0; i < 3; i++) {
+                *(p_gyro + i) = *(p_gyro + i) / 1000.0f;
+            }
+
+            // flag threshold if the magnitude exceed
+            float magnitude = pow(*(p_acc), 2) + pow(*(p_acc + 1), 2) + pow(*(p_acc + 2), 2);
+            *p_acc_thres_flag = (magnitude > ACCEL_SQR_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
+
+            magnitude = pow(*(p_gyro), 2) + pow(*(p_gyro + 1), 2) + pow(*(p_gyro + 2), 2);
+            *p_gyro_thres_flag = (magnitude > GYRO_SQR_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
+        }
 
         // clear the DRDY flag
         acc_gyro_d6d_ready = BOOL_CLR;
@@ -594,35 +621,78 @@ static void read_ready_acc_gyro_d6d(float* p_acc, float* p_gyro, uint8_t* p_d6d,
 /**
  * @brief read mag from LIS3MDL
  * @param int16_t* p_mag pointer to int16_t array of 3 elements
+ * @param bool* p_mag_thres_flag to pointer bool for threshold monitoring
  * @retval None
  */
-static void read_mag(int16_t* p_mag)
+static void read_ready_mag(int16_t* p_mag, bool* p_mag_thres_flag)
 {
     // the function that actually reads the xyz is LIS3MDL_MagReadXYZ in lis3mdl.c
     // the function also does sensitivity conversion to mGauss
     // returns int16_t in mGauss
-    LIS3MDL_MagReadXYZ(p_mag);
+    if (mag_ready == BOOL_SET) {
+        LIS3MDL_MagReadXYZ(p_mag);
+        uint32_t magnitude = pow(*(p_mag), 2) + pow(*(p_mag + 1), 2) + pow(*(p_mag + 2), 2);
+        *p_mag_thres_flag = magnitude > MAG_SQR_UPPER_THRES ? BOOL_SET : BOOL_CLR;
+        mag_ready = BOOL_CLR;
+    }
 }
 
 /**
  * @brief read pressure from LPS22HB
- * @param None
- * @retval humidity
+ *        copied from library but make it return kPa instead
+ * @param p_pressureData pointer to float storing the pressure data
+ * @param p_pressure_thres_flag pointer to flag for threshold pressure data
+ * @retval None
  */
-static float read_pressure(void)
+static void read_ready_pressure(float* p_pressureData, bool* p_pressure_thres_flag)
 {
-    // the function that actually reads the value is LPS22HB_P_ReadPressure in lps22hb.c
-    // returns as float in hPa, the read does the concatenation of 3 bytes, 2's complement and *100/4096 then /100
-    // divide 10 to convert to kPa
-    return BSP_PSENSOR_ReadPressure() / 10;
+    if (press_ready == BOOL_SET) {
+        int32_t raw_press;
+        uint8_t buffer[3];
+        uint32_t tmp = 0;
+        uint8_t i;
+
+        for (i = 0; i < 3; i++) {
+            buffer[i] = SENSOR_IO_Read(LPS22HB_I2C_ADDRESS, (LPS22HB_PRESS_OUT_XL_REG + i));
+        }
+
+        /* Build the raw data */
+        for (i = 0; i < 3; i++)
+            tmp |= (((uint32_t)buffer[i]) << (8 * i));
+
+        /* convert the 2's complement 24 bit to 2's complement 32 bit */
+        if (tmp & 0x00800000)
+            tmp |= 0xFF000000;
+
+        raw_press = ((int32_t)tmp);
+
+        raw_press = (raw_press * 100) / 4096;
+
+        *p_pressureData = (float)((float)raw_press / 1000.0f);
+
+        // flag threshold if the magnitude exceed
+        pressure_thres_flag = (*p_pressureData > PRESS_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
+
+        // clear the DRDY flag
+        press_ready = BOOL_CLR;
+    }
 }
 
 /**
  * @brief read humidity and temperature from HTS221 when data is ready
+ *        imporved from libary by only reading calibration once
  * @param p_hum pointer to float
  * @param p_temp pointer to float
  * @param humidity_thres_flag pointer to bool flag
  * @param temp_thres_flag pointer to bool flag
+ * @param h0_lsb int16_t to store the calibration h0_lsb
+ * @param h1_lsb int16_t to store the calibration h1_lsb
+ * @param h0_rh int16_t to store the calibration h0_rh
+ * @param h1_rh int16_t to store the calibration h1_rh
+ * @param t0_lsb int16_t to store the calibration t0_lsb
+ * @param t1_lsb int16_t to store the calibration t1_lsb
+ * @param t0_degc int16_t to store the calibration t0_degC
+ * @param t1_degc int16_t to store the calibration t1_degC
  * @retval None
  */
 static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thres_flag, bool* temp_thres_flag, int16_t h0_lsb, int16_t h1_lsb, int16_t h0_rh, int16_t h1_rh, int16_t t0_lsb, int16_t t1_lsb, int16_t t0_degc, int16_t t1_degc)
@@ -762,17 +832,17 @@ static void LSM6DSL_AccGyroInit(void)
     __HAL_RCC_GPIOD_CLK_ENABLE();
 
     // Configure PD11 pin as input with External interrupt
-    gpio_init_structure.Pin = GPIO_PIN_11;
+    gpio_init_structure.Pin = LSM6DSL_INT1_EXTI11_Pin;
     gpio_init_structure.Pull = GPIO_PULLDOWN;
     gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
 
     gpio_init_structure.Mode = GPIO_MODE_IT_RISING; // interupt is active high
 
-    HAL_GPIO_Init(GPIOD, &gpio_init_structure);
+    HAL_GPIO_Init(LPS22HB_INT_DRDY_EXTI0_GPIO_Port, &gpio_init_structure);
 
     // Enable and set EXTI Interrupt priority
-    HAL_NVIC_SetPriority(EXTI15_10_IRQn, EXTI15_10_IRQn_PREEMPT_PRIO, EXTI15_10_IRQn_SUB_PRIO);
-    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+    HAL_NVIC_SetPriority(LSM6DSL_INT1_EXTI11_EXTI_IRQn, LSM6DSL_INT1_EXTI11_EXTI_IRQn_PREEMPT_PRIO, LSM6DSL_INT1_EXTI11_EXTI_IRQn_SUB_PRIO);
+    HAL_NVIC_EnableIRQ(LSM6DSL_INT1_EXTI11_EXTI_IRQn);
 
     //////////////////////////////////////////////////////////////////////////////////////////
     uint8_t ctrl = 0x00;
@@ -860,7 +930,14 @@ static void LSM6DSL_AccGyroInit(void)
 /**
  * @brief modified init for HTS221 humidity and temperature to support DRDY interrupt,
  *        also init GPIO PD15 for the EXTI
- * @param None
+ * @param p_h0_lsb pointer to int16_t to store the calibration h0_lsb
+ * @param p_h1_lsb pointer to int16_t to store the calibration h1_lsb
+ * @param p_h0_rh pointer to int16_t to store the calibration h0_rh
+ * @param p_h1_rh pointer to int16_t to store the calibration h1_rh
+ * @param p_t0_lsb pointer to int16_t to store the calibration t0_lsb
+ * @param p_t1_lsb pointer to int16_t to store the calibration t1_lsb
+ * @param p_t0_degc pointer to int16_t to store the calibration t0_degC
+ * @param p_t1_degc pointer to int16_t to store the calibration t1_degC
  * @retval None
  */
 static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_h0_rh, int16_t* p_h1_rh, int16_t* p_t0_lsb, int16_t* p_t1_lsb, int16_t* p_t0_degc, int16_t* p_t1_degc)
@@ -873,17 +950,17 @@ static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_
     __HAL_RCC_GPIOD_CLK_ENABLE();
 
     // Configure PD15 pin as input with External interrupt
-    gpio_init_structure.Pin = GPIO_PIN_15;
+    gpio_init_structure.Pin = HTS221_DRDY_EXTI15_Pin;
     gpio_init_structure.Pull = GPIO_PULLDOWN;
     gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
 
     gpio_init_structure.Mode = GPIO_MODE_IT_RISING; // interupt is active high
 
-    HAL_GPIO_Init(GPIOD, &gpio_init_structure);
+    HAL_GPIO_Init(HTS221_DRDY_EXTI15_GPIO_Port, &gpio_init_structure);
 
     // Enable and set EXTI Interrupt priority
-    HAL_NVIC_SetPriority(EXTI15_10_IRQn, EXTI15_10_IRQn_PREEMPT_PRIO, EXTI15_10_IRQn_SUB_PRIO);
-    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+    HAL_NVIC_SetPriority(HTS221_DRDY_EXTI15_EXTI_IRQn, HTS221_DRDY_EXTI15_EXTI_IRQn_PREEMPT_PRIO, HTS221_DRDY_EXTI15_EXTI_IRQn_SUB_PRIO);
+    HAL_NVIC_EnableIRQ(HTS221_DRDY_EXTI15_EXTI_IRQn);
 
     //////////////////////////////////////////////////////////////////////////////////////////
     uint8_t tmp;
@@ -891,9 +968,9 @@ static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_
     /*
     DRDY config
     */
-    // DRDY_H_L 0 active high
-    // PP_OD 0 push pull
-    // DRDY_EN 1 enabled
+    // DRDY_H_L 0 => active high
+    // PP_OD 0 => push pull
+    // DRDY_EN 1 => enabled
     // clear 0xC4
     // set 0x04
     tmp = SENSOR_IO_Read(HTS221_I2C_ADDRESS, HTS221_CTRL_REG3);
@@ -957,6 +1034,110 @@ static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_
 
     *p_t0_lsb = (((uint16_t)buffer[1]) << 8) | (uint16_t)buffer[0];
     *p_t1_lsb = (((uint16_t)buffer[3]) << 8) | (uint16_t)buffer[2];
+}
+
+/**
+ * @brief modified init for LPS22HB pressure sensor to support DRDY interrupt,
+ *        also init GPIO PD10 for the EXTI
+ * @param None
+ * @retval None
+ */
+static void LPS22HB_PressureInit()
+{
+    /*
+    configuring the GPIO for EXTI from LPS22HB at PD10
+    */
+    GPIO_InitTypeDef gpio_init_structure;
+
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+
+    // Configure PD10 pin as input with External interrupt
+    gpio_init_structure.Pin = LPS22HB_INT_DRDY_EXTI0_Pin;
+    gpio_init_structure.Pull = GPIO_PULLDOWN;
+    gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+
+    gpio_init_structure.Mode = GPIO_MODE_IT_RISING; // interupt is active high
+
+    HAL_GPIO_Init(LPS22HB_INT_DRDY_EXTI0_GPIO_Port, &gpio_init_structure);
+
+    // Enable and set EXTI Interrupt priority
+    HAL_NVIC_SetPriority(LPS22HB_INT_DRDY_EXTI0_EXTI_IRQn, LPS22HB_INT_DRDY_EXTI0_EXTI_IRQn_PREEMPT_PRIO, LPS22HB_INT_DRDY_EXTI0_EXTI_IRQn_SUB_PRIO);
+    HAL_NVIC_EnableIRQ(LPS22HB_INT_DRDY_EXTI0_EXTI_IRQn);
+
+    //////////////////////////////////////////////////////////////////////////////////////////
+
+    uint8_t tmp;
+
+    /*
+    DRDY config
+    */
+    // INT_H_L 0 => active high
+    // PP_OD 0 => push pull
+    // DRDY 1 => enabled
+    // the rest zero
+    // write 0b0000 0100 = 0x04
+    SENSOR_IO_Write(LPS22HB_I2C_ADDRESS, LPS22HB_CTRL_REG3, 0x04);
+
+    /* Set Power mode */
+    tmp = SENSOR_IO_Read(LPS22HB_I2C_ADDRESS, LPS22HB_RES_CONF_REG);
+
+    tmp &= ~LPS22HB_LCEN_MASK;
+    tmp |= (uint8_t)0x01; /* Set low current mode */
+
+    SENSOR_IO_Write(LPS22HB_I2C_ADDRESS, LPS22HB_RES_CONF_REG, tmp);
+
+    /* Read CTRL_REG1 */
+    tmp = SENSOR_IO_Read(LPS22HB_I2C_ADDRESS, LPS22HB_CTRL_REG1);
+
+    /* Set default ODR */
+    tmp &= ~LPS22HB_ODR_MASK;
+    tmp |= (uint8_t)0x30; /* Set ODR to 25Hz */
+
+    /* Enable BDU */
+    tmp &= ~LPS22HB_BDU_MASK;
+    tmp |= ((uint8_t)0x02);
+
+    /* Apply settings to CTRL_REG1 */
+    SENSOR_IO_Write(LPS22HB_I2C_ADDRESS, LPS22HB_CTRL_REG1, tmp);
+}
+
+static void my_LIS3MDL_MagInit(void)
+{
+    /*Configuring GPIO for EXTI8 at PC8*/
+    GPIO_InitTypeDef GPIO_INIT_STRUCTURE;
+
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+
+    GPIO_INIT_STRUCTURE.Pin = GPIO_PIN_8;
+    GPIO_INIT_STRUCTURE.Pull = GPIO_PULLDOWN;
+    GPIO_INIT_STRUCTURE.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_INIT_STRUCTURE.Mode = GPIO_MODE_IT_RISING;
+
+    HAL_GPIO_Init(GPIOC, &GPIO_INIT_STRUCTURE);
+
+    // Setting up NVIC prempt and priority to handle interrupt
+    HAL_NVIC_SetPriority(LIS3MDL_DRDY_EXTI8_EXTI_IRQn, LIS3MDL_DRDY_EXTI8_EXTI_IRQn_PREEMPT_PRIO, LIS3MDL_DRDY_EXTI8_EXTI_IRQn_SUB_PRIO);
+    HAL_NVIC_EnableIRQ(LIS3MDL_DRDY_EXTI8_EXTI_IRQn);
+
+    /*Configuring control registers for initialisation*/
+    // CTRL_REG1
+    int8_t ctrl = LIS3MDL_MAG_TEMPSENSOR_DISABLE | LIS3MDL_MAG_OM_XY_HIGH | LIS3MDL_MAG_ODR_40_HZ;
+    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG1, ctrl);
+    // CTRL_REG2
+    ctrl = LIS3MDL_MAG_FS_4_GA | LIS3MDL_MAG_REBOOT_DEFAULT | LIS3MDL_MAG_SOFT_RESET_DEFAULT;
+    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG2, ctrl);
+    // CTRL_REG3
+    ctrl = LIS3MDL_MAG_CONFIG_NORMAL_MODE | LIS3MDL_MAG_CONTINUOUS_MODE;
+    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG3, ctrl);
+    // CTRL_REG4
+    ctrl = LIS3MDL_MAG_OM_Z_HIGH | LIS3MDL_MAG_BLE_LSB;
+    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG4, ctrl);
+    // CTRL_REG5
+    ctrl = LIS3MDL_MAG_BDU_MSBLSB;
+    SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_CTRL_REG5, ctrl);
+    // idk
+    // ctrl = 0xEA;
+    // SENSOR_IO_Write(LIS3MDL_MAG_I2C_ADDRESS_HIGH, LIS3MDL_MAG_INT_CFG, ctrl);
 }
 
 static void RF_GPIO_Init()

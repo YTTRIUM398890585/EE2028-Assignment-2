@@ -45,7 +45,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "es_wifi.h"
 
-#define DEBUG  printf("%s:%d :",__FILE__,__LINE__);printf
+#define DEBUG printf("%s:%d :",__FILE__,__LINE__);printf
 
 #define AT_OK_STRING "\r\nOK\r\n> "
 #define AT_OK_STRING_LEN (sizeof(AT_OK_STRING) - 1)

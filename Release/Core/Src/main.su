@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ../Core/Src/main.c:669:13:print_threshold_press	16	static
 ../Core/Src/main.c:656:13:print_threshold_hum	16	static
 ../Core/Src/main.c:630:13:print_threshold_gyro.part.0	48	static
@@ -5,3 +6,12 @@
 ../Core/Src/main.c:485:13:led_blink	16	static
 ../Core/Src/main.c:126:5:main	80	static
 ../Core/Src/main.c:423:6:HAL_GPIO_EXTI_Callback	8	static
+=======
+../Core/Src/main.c:742:13:print_threshold_press	16	static
+../Core/Src/main.c:728:13:print_threshold_hum	16	static
+../Core/Src/main.c:700:13:print_threshold_gyro.part.0	48	static
+../Core/Src/main.c:714:13:print_threshold_mag.part.0	48	static
+../Core/Src/main.c:506:13:led_blink	16	static
+../Core/Src/main.c:127:5:main	80	static
+../Core/Src/main.c:435:6:HAL_GPIO_EXTI_Callback	8	static
+>>>>>>> main
