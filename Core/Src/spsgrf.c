@@ -79,7 +79,7 @@ void SPSGRF_Init(void)
 
   // Configure GPIO3 as interrupt request pin (active low)
   xGpioInit.xSpiritGpioPin = SPIRIT_GPIO_3;
-  xGpioInit.xSpiritGpioMode = SPIRIT_GPIO_MODE_DIGITAL_OUTPUT_LP;
+  xGpioInit.xSpiritGpioMode = SPIRIT_GPIO_MODE_DIGITAL_OUTPUT_HP;
   xGpioInit.xSpiritGpioIO = SPIRIT_GPIO_DIG_OUT_IRQ;
   SpiritGpioInit(&xGpioInit);
 
