@@ -92,13 +92,15 @@ bool humidity_thres_flag = BOOL_CLR;
 bool temp_thres_flag = BOOL_CLR;
 
 // for rf
-volatile SpiritFlagStatus xTxDoneFlag = S_RESET;
-volatile SpiritFlagStatus xRxDoneFlag = S_RESET;
+volatile SpiritFlagStatus xTxDoneFlag = S_SET;
+volatile SpiritFlagStatus xRxDoneFlag = S_SET;
 uint8_t spsgrf_buffer[SPSGRF_BUFFER_SIZE];
 
 SPI_HandleTypeDef spi3;
 
 uint32_t last_tx_tick = 0;
+uint32_t last_rx_tick = 0;
+
 
 // to store calibration value of hum and temp
 int16_t h0_lsb = 0;
@@ -174,6 +176,35 @@ int main(void)
     while (1) {
         button_press();
 
+        // Tx data every 10ms and if last Tx is sent
+        if (HAL_GetTick() - last_tx_tick >= 10 && xTxDoneFlag == S_SET) {
+            if (is_drone == BOOL_SET) {
+                // drone will send back telem and status
+                uint8_t status[STATUS_NBYTES];
+
+                status[0] = ((gun_charge & 0x0F) << CHARGE_POS) | ((state & 0x0F) << STATE_POS);
+                status[1] = ((((uint8_t)pressure_thres_flag) & 0x01) << P_TH_POS) | ((((uint8_t)temp_thres_flag) & 0x01) << T_TH_POS) | ((((uint8_t)humidity_thres_flag) & 0x01) << H_TH_POS) | ((((uint8_t)acc_thres_flag) & 0x01) << A_TH_POS) | ((((uint8_t)gyro_thres_flag) & 0x01) << G_TH_POS) | ((((uint8_t)mag_thres_flag) & 0x01) << M_TH_POS);
+
+                memcpy(spsgrf_buffer, &pressure_data, sizeof(PRESSURE_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES), &temp_data, sizeof(TEMP_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES), &humidity_data, sizeof(HUMIDITY_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), accel_data, sizeof(ACCEL_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), gyro_data, sizeof(GYRO_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), mag_data, sizeof(MAG_NBYTES));
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), &status, sizeof(STATUS_NBYTES));
+
+            } else {
+                // station will send change of state request, charge request
+                spsgrf_buffer[0] = ((((uint8_t)charge_flag) & 0x01) << CHARGE_POS) | ((chg_to_state & STATE_MSK) << STATE_POS);
+            }
+
+
+            xTxDoneFlag = S_RESET;
+            // SpiritSpiCommandStrobes(COMMAND_SABORT); 
+            SPSGRF_StartTx(spsgrf_buffer, strlen(spsgrf_buffer));
+            last_tx_tick = HAL_GetTick();
+        }
+
         if (is_drone == BOOL_SET) {
             // read data if DRDY triggered if it is a drone
             read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
@@ -182,7 +213,9 @@ int main(void)
             read_ready_mag(mag_data, &mag_thres_flag);
 
             // read data from station if it is a drone and Rx data is ready
-            if (xRxDoneFlag == S_SET) {
+            if (/*HAL_GetTick() - last_rx_tick && */xRxDoneFlag == S_SET) {
+                xRxDoneFlag = S_RESET;
+                // SpiritSpiCommandStrobes(COMMAND_SABORT); 
                 SPSGRF_StartRx();
                 uint8_t rxLen = SPSGRF_GetRxData(spsgrf_buffer);
 
@@ -197,10 +230,14 @@ int main(void)
                     // flag charge to charge if station request
                     charge_flag = spsgrf_buffer[0] & CHARGE_REQ_MSK;
                 }
+
+//                last_rx_tick = HAL_GetTick();
             }
         } else {
             // read data from drone if it is a station and Rx data is ready
-            if (xRxDoneFlag == S_SET) {
+            if (/*HAL_GetTick() - last_rx_tick && */xRxDoneFlag == S_SET) {
+                xRxDoneFlag = S_RESET;
+                // SpiritSpiCommandStrobes(COMMAND_SABORT); 
                 SPSGRF_StartRx();
                 uint8_t rxLen = SPSGRF_GetRxData(spsgrf_buffer);
 
@@ -226,52 +263,31 @@ int main(void)
                     mag_thres_flag = status[1] & M_TH_MSK;
                 }
 
-                xRxDoneFlag = S_RESET;
+//                last_rx_tick = HAL_GetTick();
             }
         }
 
-        // Tx data every 10ms and if last Tx is sent
-        if (HAL_GetTick() - last_tx_tick >= 10 && xTxDoneFlag == S_SET) {
-            if (is_drone == BOOL_SET) {
-                // drone will send back telem and status
-                uint8_t status[STATUS_NBYTES];
+        // // takes care of latching INT pins, when the ISR ran during reading and got cleared
+        // if (HAL_GetTick() - latching_check_tick >= 1000) {
+        //     if (HAL_GPIO_ReadPin(LPS22HB_INT_DRDY_EXTI0_GPIO_Port, LPS22HB_INT_DRDY_EXTI0_Pin) == GPIO_PIN_SET) {
+        //         press_ready = BOOL_SET;
+        //     }
 
-                status[0] = ((gun_charge & 0x0F) << CHARGE_POS) | ((state & 0x0F) << STATE_POS);
-                status[1] = ((((uint8_t)pressure_thres_flag) & 0x01) << P_TH_POS) | ((((uint8_t)temp_thres_flag) & 0x01) << T_TH_POS) | ((((uint8_t)humidity_thres_flag) & 0x01) << H_TH_POS) | ((((uint8_t)acc_thres_flag) & 0x01) << A_TH_POS) | ((((uint8_t)gyro_thres_flag) & 0x01) << G_TH_POS) | ((((uint8_t)mag_thres_flag) & 0x01) << M_TH_POS);
+        //     if (HAL_GPIO_ReadPin(HTS221_DRDY_EXTI15_GPIO_Port, HTS221_DRDY_EXTI15_Pin) == GPIO_PIN_SET) {
+        //         hum_temp_ready = BOOL_SET;
+        //     }
 
-                memcpy(spsgrf_buffer, &pressure_data, sizeof(PRESSURE_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES), &temp_data, sizeof(TEMP_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES), &humidity_data, sizeof(HUMIDITY_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), accel_data, sizeof(ACCEL_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), gyro_data, sizeof(GYRO_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), mag_data, sizeof(MAG_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), &status, sizeof(STATUS_NBYTES));
+        //     if (HAL_GPIO_ReadPin(LIS3MDL_DRDY_EXTI8_GPIO_Port, LIS3MDL_DRDY_EXTI8_Pin) == GPIO_PIN_SET) {
+        //         mag_ready = BOOL_SET;
+        //     }
 
-            } else {
-                // station will send change of state request, charge request
-                spsgrf_buffer[0] = ((((uint8_t)charge_flag) & 0x01) << CHARGE_POS) | ((chg_to_state & STATE_MSK) << STATE_POS);
-            }
+        //     if (HAL_GPIO_ReadPin(SPSGRF_915_GPIO3_EXTI5_GPIO_Port, SPSGRF_915_GPIO3_EXTI5_Pin) == GPIO_PIN_RESET) {
+		// 		xTxDoneFlag = S_SET;
+		// 		xRxDoneFlag = S_SET;
+		// 	}
 
-            SPSGRF_StartTx(spsgrf_buffer, strlen(spsgrf_buffer));
-            xTxDoneFlag = S_RESET;
-        }
-
-        // takes care of latching INT pins, when the ISR ran during reading and got cleared
-        if (HAL_GetTick() - latching_check_tick >= 1000) {
-            if (HAL_GPIO_ReadPin(LPS22HB_INT_DRDY_EXTI0_GPIO_Port, LPS22HB_INT_DRDY_EXTI0_Pin) == GPIO_PIN_SET) {
-                press_ready = BOOL_SET;
-            }
-
-            if (HAL_GPIO_ReadPin(HTS221_DRDY_EXTI15_GPIO_Port, HTS221_DRDY_EXTI15_Pin) == GPIO_PIN_SET) {
-                hum_temp_ready = BOOL_SET;
-            }
-
-            if (HAL_GPIO_ReadPin(LIS3MDL_DRDY_EXTI8_GPIO_Port, LIS3MDL_DRDY_EXTI8_Pin) == GPIO_PIN_SET) {
-                mag_ready = BOOL_SET;
-            }
-
-            latching_check_tick = HAL_GetTick();
-        }
+        //     latching_check_tick = HAL_GetTick();
+        // }
 
         switch (state) {
         case STANDBY_MODE:
@@ -788,10 +804,10 @@ static void read_ready_mag(int16_t* p_mag, bool* p_mag_thres_flag)
 {
     // returns int16_t in mGauss
     if (mag_ready == BOOL_SET) {
+    	mag_ready = BOOL_CLR;
         LIS3MDL_MagReadXYZ(p_mag);
         uint32_t magnitude = pow(*(p_mag), 2) + pow(*(p_mag + 1), 2) + pow(*(p_mag + 2), 2);
         *p_mag_thres_flag = magnitude > MAG_SQR_UPPER_THRES ? BOOL_SET : BOOL_CLR;
-        mag_ready = BOOL_CLR;
     }
 }
 
@@ -805,6 +821,9 @@ static void read_ready_mag(int16_t* p_mag, bool* p_mag_thres_flag)
 static void read_ready_pressure(float* p_pressureData, bool* p_pressure_thres_flag)
 {
     if (press_ready == BOOL_SET) {
+    	// clear the DRDY flag
+		press_ready = BOOL_CLR;
+
         int32_t raw_press;
         uint8_t buffer[3];
         uint32_t tmp = 0;
@@ -830,9 +849,6 @@ static void read_ready_pressure(float* p_pressureData, bool* p_pressure_thres_fl
 
         // flag threshold if the magnitude exceed
         pressure_thres_flag = (*p_pressureData > PRESS_UPPER_THRES) ? BOOL_SET : BOOL_CLR;
-
-        // clear the DRDY flag
-        press_ready = BOOL_CLR;
     }
 }
 
@@ -856,6 +872,9 @@ static void read_ready_pressure(float* p_pressureData, bool* p_pressure_thres_fl
 static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thres_flag, bool* temp_thres_flag, int16_t h0_lsb, int16_t h1_lsb, int16_t h0_rh, int16_t h1_rh, int16_t t0_lsb, int16_t t1_lsb, int16_t t0_degc, int16_t t1_degc)
 {
     if (hum_temp_ready == BOOL_SET) {
+    	// clear the DRDY flag
+		hum_temp_ready = BOOL_CLR;
+
         int16_t H_T_out;
         uint8_t buffer[2];
         float tmp_f;
@@ -884,9 +903,6 @@ static void read_ready_hum_temp(float* p_hum, float* p_temp, bool* humidity_thre
         // flag threshold if the magnitude exceed
         *humidity_thres_flag = *p_hum < HUM_LOWER_THRES ? BOOL_SET : BOOL_CLR;
         *temp_thres_flag = *p_temp > TEMP_UPPER_THRES ? BOOL_SET : BOOL_CLR;
-
-        // clear the DRDY flag
-        hum_temp_ready = BOOL_CLR;
     }
 }
 
