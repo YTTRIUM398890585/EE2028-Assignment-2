@@ -69,26 +69,26 @@ bool acc_thres_flag = BOOL_CLR;
 bool gyro_thres_flag = BOOL_CLR;
 
 // magnetometer
-volatile bool mag_ready = BOOL_CLR;
+volatile bool mag_ready = BOOL_SET;
 int16_t mag_data[3];
 bool mag_thres_flag = BOOL_CLR;
 
 // pressure
-volatile bool press_ready = BOOL_SET; // needed to kick start read;
+volatile bool press_ready = BOOL_SET;
 float pressure_data;
 bool pressure_thres_flag = BOOL_CLR;
 
 // hum and temp
-volatile bool hum_temp_ready = BOOL_SET; // needed to kick start read
+volatile bool hum_temp_ready = BOOL_SET;
 float humidity_data;
 float temp_data;
 bool humidity_thres_flag = BOOL_CLR;
 bool temp_thres_flag = BOOL_CLR;
 
 // for rf
-volatile SpiritFlagStatus xTxDoneFlag;
-volatile SpiritFlagStatus xRxDoneFlag;
-char payload[20] = "Hello World!\r\n";
+volatile SpiritFlagStatus xTxDoneFlag = S_SET;
+volatile SpiritFlagStatus xRxDoneFlag = S_SET;
+uint8_t payload[20] = "Hello World!\r\n";
 uint8_t rxLen;
 
 SPI_HandleTypeDef spi3;
@@ -149,10 +149,10 @@ int main(void)
     // must init this for I2C to configure the sensors
     SENSOR_IO_Init();
 
-    // LSM6DSL_AccGyroInit();
-    // HTS221_HumTempInit(&h0_lsb, &h1_lsb, &h0_rh, &h1_rh, &t0_lsb, &t1_lsb, &t0_degc, &t1_degc);
-    // my_LIS3MDL_MagInit();
-    // LPS22HB_PressureInit();
+    LSM6DSL_AccGyroInit();
+    HTS221_HumTempInit(&h0_lsb, &h1_lsb, &h0_rh, &h1_rh, &t0_lsb, &t1_lsb, &t0_degc, &t1_degc);
+    my_LIS3MDL_MagInit();
+    LPS22HB_PressureInit();
 
     // init for rf
     RF_GPIO_Init();
@@ -168,12 +168,10 @@ int main(void)
     while (1) {
 #ifdef APPLICATION_TRANSMITTER
         // Send the payload
-        xTxDoneFlag = S_RESET;
-        SPSGRF_StartTx(payload, strlen(payload));
-        while (!xTxDoneFlag)
-            ;
-
-        HAL_Delay(2000); // Block for 2000 ms
+        if (xTxDoneFlag == S_SET) {
+            SPSGRF_StartTx(payload, strlen(payload));
+            xTxDoneFlag = S_RESET;
+        }
 #else
         xRxDoneFlag = S_RESET;
         SPSGRF_StartRx();
@@ -185,11 +183,11 @@ int main(void)
         HAL_UART_Transmit(&huart2, payload, rxLen, HAL_MAX_DELAY);
 #endif // APPLICATION_TRANSMITTER
 
-        // button_press();
+        button_press();
 
-        // // read data if DRDY triggered
-        // read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
-        // read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
+        // read data if DRDY triggered
+        read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
+        read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
         read_ready_pressure(&pressure_data, &pressure_thres_flag);
         read_ready_mag(mag_data, &mag_thres_flag);
         // takes care of latching INT pins, when the ISR ran during reading and got cleared
@@ -208,24 +206,24 @@ int main(void)
             latching_check_tick = HAL_GetTick();
         }
 
-        // switch (state) {
-        // case STANDBY_MODE:
-        //     standby_mode(&state);
-        //     break;
-        // case BATTLE_NO_LAST_OF_EE2028_MODE:
-        //     battle_no_last_of_ee2028_mode(&state);
-        //     break;
-        // case BATTLE_LAST_OF_EE2028_MODE:
-        //     battle_last_of_ee2028_mode(&state);
-        //     break;
-        // case DEAD_MODE:
-        //     dead_mode(&state);
-        //     break;
-        // default:
-        //     // for debugging incase state somehow get here
-        //     led_blink(LED_10HZ);
-        //     break;
-        // }
+        switch (state) {
+        case STANDBY_MODE:
+            standby_mode(&state);
+            break;
+        case BATTLE_NO_LAST_OF_EE2028_MODE:
+            battle_no_last_of_ee2028_mode(&state);
+            break;
+        case BATTLE_LAST_OF_EE2028_MODE:
+            battle_last_of_ee2028_mode(&state);
+            break;
+        case DEAD_MODE:
+            dead_mode(&state);
+            break;
+        default:
+            // for debugging incase state somehow get here
+            led_blink(LED_10HZ);
+            break;
+        }
     }
 }
 
@@ -495,22 +493,24 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         press_ready = BOOL_SET;
     }
     // EXTI from LIS3MDL, flag to read Mag data
-    if (GPIO_Pin == GPIO_PIN_8) {
+    if (GPIO_Pin == LIS3MDL_DRDY_EXTI8_Pin) {
         mag_ready = BOOL_SET;
     }
 
-    // rf
-    SpiritIrqs xIrqStatus;
+    // EXTI from RF
+    if (GPIO_Pin == SPSGRF_915_GPIO3_EXTI5_Pin) {
+        SpiritIrqs xIrqStatus;
 
-    SpiritIrqGetStatus(&xIrqStatus);
-    if (xIrqStatus.IRQ_TX_DATA_SENT) {
-        xTxDoneFlag = S_SET;
-    }
-    if (xIrqStatus.IRQ_RX_DATA_READY) {
-        xRxDoneFlag = S_SET;
-    }
-    if (xIrqStatus.IRQ_RX_DATA_DISC || xIrqStatus.IRQ_RX_TIMEOUT) {
-        SpiritCmdStrobeRx();
+        SpiritIrqGetStatus(&xIrqStatus);
+        if (xIrqStatus.IRQ_TX_DATA_SENT) {
+            xTxDoneFlag = S_SET;
+        }
+        if (xIrqStatus.IRQ_RX_DATA_READY) {
+            xRxDoneFlag = S_SET;
+        }
+        if (xIrqStatus.IRQ_RX_DATA_DISC || xIrqStatus.IRQ_RX_TIMEOUT) {
+            SpiritCmdStrobeRx();
+        }
     }
 }
 
@@ -834,7 +834,7 @@ static void LSM6DSL_AccGyroInit(void)
     // Configure PD11 pin as input with External interrupt
     gpio_init_structure.Pin = LSM6DSL_INT1_EXTI11_Pin;
     gpio_init_structure.Pull = GPIO_PULLDOWN;
-    gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    // gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
 
     gpio_init_structure.Mode = GPIO_MODE_IT_RISING; // interupt is active high
 
@@ -952,7 +952,7 @@ static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_
     // Configure PD15 pin as input with External interrupt
     gpio_init_structure.Pin = HTS221_DRDY_EXTI15_Pin;
     gpio_init_structure.Pull = GPIO_PULLDOWN;
-    gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    // gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
 
     gpio_init_structure.Mode = GPIO_MODE_IT_RISING; // interupt is active high
 
@@ -1054,7 +1054,7 @@ static void LPS22HB_PressureInit()
     // Configure PD10 pin as input with External interrupt
     gpio_init_structure.Pin = LPS22HB_INT_DRDY_EXTI0_Pin;
     gpio_init_structure.Pull = GPIO_PULLDOWN;
-    gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    // gpio_init_structure.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
 
     gpio_init_structure.Mode = GPIO_MODE_IT_RISING; // interupt is active high
 
@@ -1108,12 +1108,12 @@ static void my_LIS3MDL_MagInit(void)
 
     __HAL_RCC_GPIOC_CLK_ENABLE();
 
-    GPIO_INIT_STRUCTURE.Pin = GPIO_PIN_8;
+    GPIO_INIT_STRUCTURE.Pin = LIS3MDL_DRDY_EXTI8_Pin;
     GPIO_INIT_STRUCTURE.Pull = GPIO_PULLDOWN;
-    GPIO_INIT_STRUCTURE.Speed = GPIO_SPEED_FREQ_LOW;
+    // GPIO_INIT_STRUCTURE.Speed = GPIO_SPEED_FREQ_LOW;
     GPIO_INIT_STRUCTURE.Mode = GPIO_MODE_IT_RISING;
 
-    HAL_GPIO_Init(GPIOC, &GPIO_INIT_STRUCTURE);
+    HAL_GPIO_Init(LIS3MDL_DRDY_EXTI8_GPIO_Port, &GPIO_INIT_STRUCTURE);
 
     // Setting up NVIC prempt and priority to handle interrupt
     HAL_NVIC_SetPriority(LIS3MDL_DRDY_EXTI8_EXTI_IRQn, LIS3MDL_DRDY_EXTI8_EXTI_IRQn_PREEMPT_PRIO, LIS3MDL_DRDY_EXTI8_EXTI_IRQn_SUB_PRIO);
@@ -1177,8 +1177,8 @@ static void RF_GPIO_Init()
     HAL_GPIO_Init(SPSGRF_915_GPIO3_EXTI5_GPIO_Port, &GPIO_InitStruct);
 
     /* EXTI interrupt init*/
-    HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+    HAL_NVIC_SetPriority(SPSGRF_915_GPIO3_EXTI5_EXTI_IRQn, SPSGRF_915_GPIO3_EXTI5_EXTI_IRQn_PREEMPT_PRIO, SPSGRF_915_GPIO3_EXTI5_EXTI_IRQn_SUB_PRIO);
+    HAL_NVIC_EnableIRQ(SPSGRF_915_GPIO3_EXTI5_EXTI_IRQn);
 }
 
 static void RF_SPI3_Init()
