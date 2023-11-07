@@ -19,8 +19,9 @@
 // Sensors
 #include "../../Drivers/BSP/B-L475E-IOT01/stm32l475e_iot01_magneto.h"
 #include "../../Drivers/BSP/Components/hts221/hts221.h"
-#include "../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h"
 #include "../../Drivers/BSP/Components/lps22hb/lps22hb.h"
+#include "../../Drivers/BSP/Components/lsm6dsl/lsm6dsl.h"
+
 
 #include "../../Drivers/BSP/Components/lis3mdl/lis3mdl.h"
 /* Variables -----------------------------------------------------------------*/
@@ -118,11 +119,10 @@ static void print_threshold_temp(void);
 
 static void LSM6DSL_AccGyroInit(void);
 static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_h0_rh, int16_t* p_h1_rh, int16_t* p_t0_lsb, int16_t* p_t1_lsb, int16_t* p_t0_degc, int16_t* p_t1_degc);
-static void LPS22HB_PressureInit();
+static void my_LIS3MDL_MagInit(void);
+static void LPS22HB_PressureInit(void);
 
 volatile uint32_t latching_check_tick = 0;
-
-static void my_LIS3MDL_MagInit(void);
 
 int main(void)
 {
@@ -161,12 +161,13 @@ int main(void)
             if (HAL_GPIO_ReadPin(HTS221_DRDY_EXTI15_GPIO_Port, HTS221_DRDY_EXTI15_Pin) == GPIO_PIN_SET) {
                 hum_temp_ready = BOOL_SET;
             }
+
             if (HAL_GPIO_ReadPin(LIS3MDL_DRDY_EXTI8_GPIO_Port, LIS3MDL_DRDY_EXTI8_Pin) == GPIO_PIN_SET) {
                 mag_ready = BOOL_SET;
             }
             latching_check_tick = HAL_GetTick();
         }
-        
+
         switch (state) {
         case STANDBY_MODE:
             standby_mode(&state);
@@ -301,7 +302,6 @@ static void battle_no_last_of_ee2028_mode(uint8_t* p_state)
 
     // read TPHAGM telem and send UART @ 1 Hz
     if (HAL_GetTick() - last_telem_tick >= 1000) {
-        
 
         print_threshold_acc();
         print_threshold_gyro();
@@ -575,40 +575,39 @@ static void read_ready_mag(int16_t* p_mag, bool* p_mag_thres_flag)
     // the function that actually reads the xyz is LIS3MDL_MagReadXYZ in lis3mdl.c
     // the function also does sensitivity conversion to mGauss
     // returns int16_t in mGauss
-	if (mag_ready == BOOL_SET){
-		LIS3MDL_MagReadXYZ(p_mag);
-		uint32_t magnitude = pow(*(p_mag), 2) + pow(*(p_mag + 1), 2) + pow(*(p_mag + 2), 2);
-		*p_mag_thres_flag = magnitude > MAG_SQR_UPPER_THRES ? BOOL_SET : BOOL_CLR;
-		mag_ready = BOOL_CLR;
-	}
+    if (mag_ready == BOOL_SET) {
+        LIS3MDL_MagReadXYZ(p_mag);
+        uint32_t magnitude = pow(*(p_mag), 2) + pow(*(p_mag + 1), 2) + pow(*(p_mag + 2), 2);
+        *p_mag_thres_flag = magnitude > MAG_SQR_UPPER_THRES ? BOOL_SET : BOOL_CLR;
+        mag_ready = BOOL_CLR;
+    }
 }
 
 /**
- * @brief read pressure from LPS22HB    
+ * @brief read pressure from LPS22HB
  *        copied from library but make it return kPa instead
  * @param p_pressureData pointer to float storing the pressure data
  * @param p_pressure_thres_flag pointer to flag for threshold pressure data
  * @retval None
  */
 static void read_ready_pressure(float* p_pressureData, bool* p_pressure_thres_flag)
-{   
+{
     if (press_ready == BOOL_SET) {
         int32_t raw_press;
         uint8_t buffer[3];
         uint32_t tmp = 0;
         uint8_t i;
 
-        for(i = 0; i < 3; i++)
-        {
+        for (i = 0; i < 3; i++) {
             buffer[i] = SENSOR_IO_Read(LPS22HB_I2C_ADDRESS, (LPS22HB_PRESS_OUT_XL_REG + i));
         }
 
         /* Build the raw data */
-        for(i = 0; i < 3; i++)
+        for (i = 0; i < 3; i++)
             tmp |= (((uint32_t)buffer[i]) << (8 * i));
 
         /* convert the 2's complement 24 bit to 2's complement 32 bit */
-        if(tmp & 0x00800000)
+        if (tmp & 0x00800000)
             tmp |= 0xFF000000;
 
         raw_press = ((int32_t)tmp);
@@ -622,7 +621,7 @@ static void read_ready_pressure(float* p_pressureData, bool* p_pressure_thres_fl
 
         // clear the DRDY flag
         press_ready = BOOL_CLR;
-    } 
+    }
 }
 
 /**
@@ -990,7 +989,7 @@ static void HTS221_HumTempInit(int16_t* p_h0_lsb, int16_t* p_h1_lsb, int16_t* p_
  * @retval None
  */
 static void LPS22HB_PressureInit()
-{   
+{
     /*
     configuring the GPIO for EXTI from LPS22HB at PD10
     */
@@ -1050,7 +1049,7 @@ static void LPS22HB_PressureInit()
 
 static void my_LIS3MDL_MagInit(void)
 {
-	/*Configuring GPIO for EXTI8 at PC8*/
+    /*Configuring GPIO for EXTI8 at PC8*/
     GPIO_InitTypeDef GPIO_INIT_STRUCTURE;
 
     __HAL_RCC_GPIOC_CLK_ENABLE();

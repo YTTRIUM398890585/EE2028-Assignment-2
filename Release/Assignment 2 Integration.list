@@ -1,5 +1,5 @@
 
-EE2028-Assignment-2.elf:     file format elf32-littlearm
+Assignment 2 Integration.elf:     file format elf32-littlearm
 
 Sections:
 Idx Name          Size      VMA       LMA       File off  Algn
