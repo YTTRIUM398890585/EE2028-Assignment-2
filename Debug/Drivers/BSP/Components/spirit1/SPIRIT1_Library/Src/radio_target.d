@@ -1,7 +1,7 @@
 Drivers/BSP/Components/spirit1/SPIRIT1_Library/Src/radio_target.o: \
  ../Drivers/BSP/Components/spirit1/SPIRIT1_Library/Src/radio_target.c \
  ../Drivers/BSP/Components/spirit1/SPIRIT1_Library/Src/../Inc/radio_target.h \
- c:\users\irwin\stm32cubeide\ee2028\ee2028-assignment-2\core\inc\main.h \
+ c:\university\ stuff\y2s1\ee2028\ee2028_stm_cube_ws\assignment\ 2\ integration\core\inc\main.h \
  ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal.h \
  ../Core/Inc/stm32l4xx_hal_conf.h \
  ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_rcc.h \
@@ -43,7 +43,7 @@ Drivers/BSP/Components/spirit1/SPIRIT1_Library/Src/radio_target.o: \
  ../Drivers/BSP/Components/spirit1/SPIRIT1_Library/Src/../Inc/SPIRIT_Types.h \
  ../Drivers/BSP/Components/spirit1/SPIRIT1_Library/Src/../Inc/SPIRIT_Regs.h
 ../Drivers/BSP/Components/spirit1/SPIRIT1_Library/Src/../Inc/radio_target.h:
-c:\users\irwin\stm32cubeide\ee2028\ee2028-assignment-2\core\inc\main.h:
+c:\university\ stuff\y2s1\ee2028\ee2028_stm_cube_ws\assignment\ 2\ integration\core\inc\main.h:
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal.h:
 ../Core/Inc/stm32l4xx_hal_conf.h:
 ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_hal_rcc.h:

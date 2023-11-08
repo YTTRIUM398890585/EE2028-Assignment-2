@@ -273,7 +273,7 @@ void Error_Handler(void);
 // STATE_NBYTES[0] [5:2] = drone charge
 // STATE_NBYTES[1] [5:0] = threshold for pressure, temp, hum, accel, gyro, mag
 #define STATE_MSK 0x03
-#define CHARGES_MSK 0x3C
+#define CHARGES_MSK 0xF0
 #define P_TH_MSK 0x20
 #define T_TH_MSK 0x10
 #define H_TH_MSK 0x08
@@ -293,6 +293,8 @@ void Error_Handler(void);
 #define STATE_POS 0
 #define CHARGE_POS 4
 
+#define STATE_CHG_EN_MSK 0x08
+#define STATE_CHG_EN_POS 3
 
 // EXTI priorities
 #define EXTI15_10_IRQn_PREEMPT_PRIO 0x01
