@@ -692,7 +692,7 @@ static void UART1_Init(void)
     huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
 
     /*Enabling NVIC and setting priority*/
-    HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
+    HAL_NVIC_SetPriority(USART1_IRQn, USART1_IRQn_PREEMPT_PRIO, USART1_IRQn_SUB_PRIO);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
 
     if (HAL_UART_Init(&huart1) != HAL_OK) {
