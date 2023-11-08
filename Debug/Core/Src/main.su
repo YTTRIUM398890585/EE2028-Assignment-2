@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 ../Core/Src/main.c:154:5:main	72	static
 ../Core/Src/main.c:359:13:standby_mode	56	static
 ../Core/Src/main.c:466:13:battle_no_last_of_ee2028_mode	48	static
@@ -23,3 +24,31 @@
 ../Core/Src/main.c:1340:13:my_LIS3MDL_MagInit	40	static
 ../Core/Src/main.c:1379:13:RF_GPIO_Init	40	static
 ../Core/Src/main.c:1418:13:RF_SPI3_Init	8	static
+=======
+../Core/Src/main.c:145:5:main	64	static
+../Core/Src/main.c:237:13:standby_mode	56	static
+../Core/Src/main.c:295:13:battle_no_last_of_ee2028_mode	48	static
+../Core/Src/main.c:386:13:battle_last_of_ee2028_mode	24	static
+../Core/Src/main.c:428:13:dead_mode	16	static
+../Core/Src/main.c:446:13:UART1_Init	32	static
+../Core/Src/main.c:484:6:HAL_UART_RxCpltCallback	16	static
+../Core/Src/main.c:498:6:HAL_GPIO_EXTI_Callback	24	static
+../Core/Src/main.c:548:13:button_press	8	static
+../Core/Src/main.c:585:13:led_blink	16	static
+../Core/Src/main.c:608:13:read_ready_acc_gyro_d6d	56	static
+../Core/Src/main.c:652:13:read_ready_mag	32	static
+../Core/Src/main.c:672:13:read_ready_pressure	40	static
+../Core/Src/main.c:723:13:read_ready_hum_temp	40	static
+../Core/Src/main.c:765:13:print_threshold_acc	24	static
+../Core/Src/main.c:779:13:print_threshold_gyro	24	static
+../Core/Src/main.c:793:13:print_threshold_mag	24	static
+../Core/Src/main.c:807:13:print_threshold_hum	16	static
+../Core/Src/main.c:821:13:print_threshold_press	16	static
+../Core/Src/main.c:835:13:print_threshold_temp	16	static
+../Core/Src/main.c:850:13:LSM6DSL_AccGyroInit	40	static
+../Core/Src/main.c:968:13:HTS221_HumTempInit	56	static
+../Core/Src/main.c:1070:13:LPS22HB_PressureInit	40	static
+../Core/Src/main.c:1129:13:my_LIS3MDL_MagInit	40	static
+../Core/Src/main.c:1168:13:RF_GPIO_Init	40	static
+../Core/Src/main.c:1207:13:RF_SPI3_Init	8	static
+>>>>>>> add-rf

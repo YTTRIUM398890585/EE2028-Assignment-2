@@ -59,7 +59,11 @@ bool double_press = BOOL_CLR;
 Tx buffer make sure does not excedd 32 - 1 characters when added with whatever when printing
 */
 char uart_buffer[UART_BUFFER_SIZE];
+char stationRx_buffer[STATION_RX_BUFFER_SIZE];
 UART_HandleTypeDef huart1;
+
+volatile bool chg_to_state = BOOL_CLR;
+volatile bool charge_flag = BOOL_CLR;
 
 /*
 Sensor and Telem
@@ -155,6 +159,9 @@ int main(void)
 {
     HAL_Init();
     UART1_Init();
+
+    // To change drone state based on station input
+    HAL_UART_Receive_IT(&huart1, (uint8_t*)stationRx_buffer, STATION_RX_BUFFER_SIZE);
 
     BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
     BSP_LED_Init(LED2);
@@ -434,7 +441,6 @@ static void standby_mode(uint8_t* p_state)
         // reset the flag
         single_press = BOOL_CLR;
     }
-
     // read GMPH telem and send UART @ 1 Hz
     if (HAL_GetTick() - last_telem_tick >= 1000) {
 
@@ -675,7 +681,7 @@ static void UART1_Init(void)
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
+    
     /* Configuring UART1 */
     huart1.Instance = USART1;
     huart1.Init.BaudRate = 115200;
@@ -687,11 +693,30 @@ static void UART1_Init(void)
     huart1.Init.OverSampling = UART_OVERSAMPLING_16;
     huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
     huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+
+    /*Enabling NVIC and setting priority*/
+    HAL_NVIC_SetPriority(USART1_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(USART1_IRQn);
+
     if (HAL_UART_Init(&huart1) != HAL_OK) {
         while (1) { }
     }
 }
 
+/**
+ * @brief Rx Transfer completed callback; used as ISR for HAL_UART_Receive_IT
+ * @param huart UART handle
+ * @retval None
+ */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if (huart -> Instance == USART1) {
+        chg_to_state = (stationRx_buffer[0] == '0') ? STANDBY_MODE : chg_to_state;
+        chg_to_state = (stationRx_buffer[0] == '1') ? BATTLE_NO_LAST_OF_EE2028_MODE : chg_to_state;
+        charge_flag = (stationRx_buffer[0] == 'c') ? BOOL_SET : BOOL_CLR;
+		HAL_UART_Receive_IT(&huart1, (uint8_t*)stationRx_buffer, STATION_RX_BUFFER_SIZE);
+	}
+}
 /**
  * @brief ISR for GPIO
  * @param uint16_t GPIO_Pin
@@ -1431,3 +1456,5 @@ static void RF_SPI3_Init()
     spi3.Init.CRCPolynomial = 10;
     HAL_SPI_Init(&spi3);
 }
+
+
