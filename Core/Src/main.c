@@ -97,7 +97,9 @@ volatile SpiritFlagStatus xRxDoneFlag = S_RESET;
 volatile SpiritFlagStatus xRxTimeOutFlag = S_SET;
 volatile bool waitflag = BOOL_CLR;
 
-uint8_t spsgrf_buffer[SPSGRF_BUFFER_SIZE];
+uint8_t spsgrf_D2S_buffer[TELEM_NBYTES];
+uint8_t spsgrf_S2D_buffer[CONTORL_NBYTES];
+
 
 SPI_HandleTypeDef spi3;
 
@@ -215,22 +217,22 @@ int main(void)
                     
             if (xRxDoneFlag == S_SET && waitflag == BOOL_CLR) {
                 // read Rx FIFO
-                uint8_t rxLen = SPSGRF_GetRxData(spsgrf_buffer);
+                uint8_t rxLen = SPSGRF_GetRxData(spsgrf_S2D_buffer);
 
                 sprintf(uart_buffer, "Drone Received Success\r\n");
                 HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_buffer, strlen(spsgrf_buffer), 0xFFFF);
+                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_S2D_buffer, strlen(spsgrf_S2D_buffer), 0xFFFF);
                 sprintf(uart_buffer, "\r\n");
                 HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
                 
                 // update drone state based on station request
-                chg_to_state = spsgrf_buffer[0] & STATE_MSK;
+                chg_to_state = spsgrf_S2D_buffer[0] & STATE_MSK;
 
                 chg_to_standby = chg_to_state == STANDBY_MODE && state != STANDBY_MODE ? BOOL_SET : BOOL_CLR;
                 chg_to_battle = chg_to_state == BATTLE_NO_LAST_OF_EE2028_MODE && state != BATTLE_NO_LAST_OF_EE2028_MODE ? BOOL_SET : BOOL_CLR;
 
                 // flag charge to charge if station request
-                charge_flag = spsgrf_buffer[0] & CHARGE_REQ_MSK;
+                charge_flag = spsgrf_S2D_buffer[0] & CHARGE_REQ_MSK;
 
                 // drone will send back telem and status
                 uint8_t status[STATUS_NBYTES];
@@ -238,22 +240,22 @@ int main(void)
                 status[0] = ((gun_charge & 0x0F) << CHARGE_POS) | ((state & 0x0F) << STATE_POS);
                 status[1] = ((((uint8_t)pressure_thres_flag) & 0x01) << P_TH_POS) | ((((uint8_t)temp_thres_flag) & 0x01) << T_TH_POS) | ((((uint8_t)humidity_thres_flag) & 0x01) << H_TH_POS) | ((((uint8_t)acc_thres_flag) & 0x01) << A_TH_POS) | ((((uint8_t)gyro_thres_flag) & 0x01) << G_TH_POS) | ((((uint8_t)mag_thres_flag) & 0x01) << M_TH_POS);
 
-                memcpy(spsgrf_buffer, &pressure_data, PRESSURE_NBYTES);
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES), &temp_data, TEMP_NBYTES);
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES), &humidity_data, HUMIDITY_NBYTES);
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), accel_data, ACCEL_NBYTES);
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), gyro_data, GYRO_NBYTES);
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), mag_data, MAG_NBYTES);
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), &status, STATUS_NBYTES);
+                memcpy(spsgrf_D2S_buffer, &pressure_data, PRESSURE_NBYTES);
+                memcpy((spsgrf_D2S_buffer + PRESSURE_NBYTES), &temp_data, TEMP_NBYTES);
+                memcpy((spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES), &humidity_data, HUMIDITY_NBYTES);
+                memcpy((spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), accel_data, ACCEL_NBYTES);
+                memcpy((spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), gyro_data, GYRO_NBYTES);
+                memcpy((spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), mag_data, MAG_NBYTES);
+                memcpy((spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), &status, STATUS_NBYTES);
 
                 xRxDoneFlag = S_RESET;
                 xTxDoneFlag = S_RESET;
                 waitflag = BOOL_SET;
-                SPSGRF_StartTx(spsgrf_buffer, strlen(spsgrf_buffer));
+                SPSGRF_StartTx(spsgrf_D2S_buffer, strlen(spsgrf_D2S_buffer));
 
                 sprintf(uart_buffer, "Drone Sending\r\n");
                 HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_buffer, strlen(spsgrf_buffer), 0xFFFF);
+                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_D2S_buffer, strlen(spsgrf_D2S_buffer), 0xFFFF);
                 sprintf(uart_buffer, "\r\n");
                 HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
             }
@@ -275,16 +277,16 @@ int main(void)
                 }
 
                 // station will send change of state request, charge request
-                spsgrf_buffer[0] = ((((uint8_t)charge_flag) & 0x01) << CHARGE_POS) | ((chg_to_state & STATE_MSK) << STATE_POS);
+                spsgrf_S2D_buffer[0] = ((((uint8_t)charge_flag) & 0x01) << CHARGE_POS) | ((chg_to_state & STATE_MSK) << STATE_POS);
 
                 xRxTimeOutFlag = S_RESET;
                 xTxDoneFlag = S_RESET;
                 waitflag = BOOL_SET;
-                SPSGRF_StartTx(spsgrf_buffer, strlen(spsgrf_buffer));
+                SPSGRF_StartTx(spsgrf_S2D_buffer, strlen(spsgrf_S2D_buffer));
 
                 sprintf(uart_buffer, "Station Sending\r\n");
                 HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_buffer, strlen(spsgrf_buffer), 0xFFFF);
+                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_S2D_buffer, strlen(spsgrf_S2D_buffer), 0xFFFF);
                 sprintf(uart_buffer, "\r\n");
                 HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
@@ -292,19 +294,19 @@ int main(void)
                 if (xRxDoneFlag == S_SET) {
                     xRxDoneFlag = S_RESET;
 
-                    uint8_t rxLen = SPSGRF_GetRxData(spsgrf_buffer);
+                    uint8_t rxLen = SPSGRF_GetRxData(spsgrf_D2S_buffer);
 
                     uint8_t status[STATUS_NBYTES];
 
-                    memcpy(&pressure_data, spsgrf_buffer, PRESSURE_NBYTES);
-                    memcpy(&temp_data, (spsgrf_buffer + PRESSURE_NBYTES), TEMP_NBYTES);
-                    memcpy(&humidity_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES), HUMIDITY_NBYTES);
-                    memcpy(accel_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), ACCEL_NBYTES);
-                    memcpy(gyro_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), GYRO_NBYTES);
-                    memcpy(mag_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), MAG_NBYTES);
-                    memcpy(&status, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), STATUS_NBYTES);
+                    memcpy(&pressure_data, spsgrf_D2S_buffer, PRESSURE_NBYTES);
+                    memcpy(&temp_data, (spsgrf_D2S_buffer + PRESSURE_NBYTES), TEMP_NBYTES);
+                    memcpy(&humidity_data, (spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES), HUMIDITY_NBYTES);
+                    memcpy(accel_data, (spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), ACCEL_NBYTES);
+                    memcpy(gyro_data, (spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), GYRO_NBYTES);
+                    memcpy(mag_data, (spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), MAG_NBYTES);
+                    memcpy(&status, (spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), STATUS_NBYTES);
 
-                    HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_buffer, strlen(spsgrf_buffer), 0xFFFF);
+                    HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_D2S_buffer, strlen(spsgrf_D2S_buffer), 0xFFFF);
                     sprintf(uart_buffer, "\r\n");
                     HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
