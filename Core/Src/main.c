@@ -198,15 +198,15 @@ int main(void)
             // The only way to trasmit is to first receive something
 
             if ((xTxDoneFlag == S_SET || xRxTimeOutFlag == S_SET) && waitflag == BOOL_CLR) {
-                if (xTxDoneFlag == S_SET) {
-                    sprintf(uart_buffer, "Drone Sent\r\n");
-                    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-                }
+                // if (xTxDoneFlag == S_SET) {
+                //     sprintf(uart_buffer, "Drone Sent\r\n");
+                //     HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // }
 
-                if (xRxTimeOutFlag == S_SET) {
-                    sprintf(uart_buffer, "Drone Receive Failed\r\n");
-                    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-                }
+                // if (xRxTimeOutFlag == S_SET) {
+                //     sprintf(uart_buffer, "Drone Receive Failed\r\n");
+                //     HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // }
 
                 xTxDoneFlag = S_RESET;
                 xRxDoneFlag = S_RESET;
@@ -214,19 +214,19 @@ int main(void)
                 waitflag = BOOL_SET;
                 SPSGRF_StartRx();
 
-                sprintf(uart_buffer, "Drone Receiving\r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // sprintf(uart_buffer, "Drone Receiving\r\n");
+                // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
             }
 
             if (xRxDoneFlag == S_SET && waitflag == BOOL_CLR) {
                 // read Rx FIFO
                 uint8_t rxLen = SPSGRF_GetRxData(spsgrf_S2D_buffer);
 
-                sprintf(uart_buffer, "Drone Received Success\r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_S2D_buffer, strlen(spsgrf_S2D_buffer), 0xFFFF);
-                sprintf(uart_buffer, "\r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // sprintf(uart_buffer, "Drone Received Success\r\n");
+                // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_S2D_buffer, strlen(spsgrf_S2D_buffer), 0xFFFF);
+                // sprintf(uart_buffer, "\r\n");
+                // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
                 // update drone state based on station request
                 chg_to_state = spsgrf_S2D_buffer[0] & STATE_MSK;
@@ -258,11 +258,11 @@ int main(void)
                 waitflag = BOOL_SET;
                 SPSGRF_StartTx(spsgrf_D2S_buffer, TELEM_NBYTES);
 
-                sprintf(uart_buffer, "Drone Sending\r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_D2S_buffer, strlen(spsgrf_D2S_buffer), 0xFFFF);
-                sprintf(uart_buffer, "\r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // sprintf(uart_buffer, "Drone Sending\r\n");
+                // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_D2S_buffer, strlen(spsgrf_D2S_buffer), 0xFFFF);
+                // sprintf(uart_buffer, "\r\n");
+                // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
             }
 
         } else {
@@ -271,15 +271,15 @@ int main(void)
             // if received done, read fifo
 
             if ((xRxDoneFlag == S_SET || xRxTimeOutFlag == S_SET) && waitflag == BOOL_CLR) {
-                if (xRxDoneFlag == S_SET) {
-                    sprintf(uart_buffer, "Station Received Success\r\n");
-                    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-                }
+                // if (xRxDoneFlag == S_SET) {
+                //     sprintf(uart_buffer, "Station Received Success\r\n");
+                //     HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // }
 
-                if (xRxTimeOutFlag == S_SET) {
-                    sprintf(uart_buffer, "Station Receive Failed\r\n");
-                    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-                }
+                // if (xRxTimeOutFlag == S_SET) {
+                //     sprintf(uart_buffer, "Station Receive Failed\r\n");
+                //     HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // }
 
                 // station will send change of state request, charge request
                 spsgrf_S2D_buffer[0] = ((((uint8_t)charge_flag) & 0x01) << CHARGE_POS) | (((uint8_t)state_chg_en & 0x01) << STATE_CHG_EN_POS) | ((chg_to_state & STATE_MSK) << STATE_POS);
@@ -289,11 +289,11 @@ int main(void)
                 waitflag = BOOL_SET;
                 SPSGRF_StartTx(spsgrf_S2D_buffer, CONTORL_NBYTES);
 
-                sprintf(uart_buffer, "Station Sending\r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
-                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_S2D_buffer, strlen(spsgrf_S2D_buffer), 0xFFFF);
-                sprintf(uart_buffer, "\r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // sprintf(uart_buffer, "Station Sending\r\n");
+                // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_S2D_buffer, strlen(spsgrf_S2D_buffer), 0xFFFF);
+                // sprintf(uart_buffer, "\r\n");
+                // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
                 // read data from drone if Rx data is ready
                 if (xRxDoneFlag == S_SET) {
@@ -311,9 +311,9 @@ int main(void)
                     memcpy(mag_data, (spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), MAG_NBYTES);
                     memcpy(&status, (spsgrf_D2S_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), STATUS_NBYTES);
 
-                    HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_D2S_buffer, strlen(spsgrf_D2S_buffer), 0xFFFF);
-                    sprintf(uart_buffer, "\r\n");
-                    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                    // HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_D2S_buffer, strlen(spsgrf_D2S_buffer), 0xFFFF);
+                    // sprintf(uart_buffer, "\r\n");
+                    // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
                     state = status[0] & STATE_MSK;
                     gun_charge = (status[0] & CHARGES_MSK) >> CHARGE_POS;
@@ -332,16 +332,16 @@ int main(void)
             }
 
             if (xTxDoneFlag == S_SET && waitflag == BOOL_CLR) {
-                sprintf(uart_buffer, "Station Sent\r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // sprintf(uart_buffer, "Station Sent\r\n");
+                // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
                 xTxDoneFlag = S_RESET;
                 xRxDoneFlag = S_RESET;
                 waitflag = BOOL_SET;
                 SPSGRF_StartRx();
 
-                sprintf(uart_buffer, "Station Receiving\r\n");
-                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                // sprintf(uart_buffer, "Station Receiving\r\n");
+                // HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
             }
         }
 
