@@ -8,6 +8,8 @@
 ******************************************************************************
 */
 
+#define RECEIVE_TIMEOUT
+
 /* Includes ------------------------------------------------------------------*/
 #include "spsgrf.h"
 
@@ -87,7 +89,7 @@ void SPSGRF_Init(void)
   SpiritIrqDeInit(NULL);
   SpiritIrq(TX_DATA_SENT, S_ENABLE);
   SpiritIrq(RX_DATA_READY, S_ENABLE);
-  SpiritIrq(RX_DATA_DISC, S_ENABLE);
+//   SpiritIrq(RX_DATA_DISC, S_ENABLE);
   SpiritIrq(RX_TIMEOUT, S_ENABLE);
   SpiritIrqClearStatus();
 
@@ -102,7 +104,7 @@ void SPSGRF_Init(void)
 
   // Configure the RX timeout
 #ifdef RECEIVE_TIMEOUT
-  SpiritTimerSetRxTimeoutMs(2000.0);
+  SpiritTimerSetRxTimeoutMs(2000);
 #else
   SET_INFINITE_RX_TIMEOUT();
 #endif /* RECIEVE_TIMEOUT */

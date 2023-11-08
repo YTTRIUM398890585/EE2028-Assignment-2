@@ -92,8 +92,11 @@ bool humidity_thres_flag = BOOL_CLR;
 bool temp_thres_flag = BOOL_CLR;
 
 // for rf
-volatile SpiritFlagStatus xTxDoneFlag = S_SET;
-volatile SpiritFlagStatus xRxDoneFlag = S_SET;
+volatile SpiritFlagStatus xTxDoneFlag = S_RESET;
+volatile SpiritFlagStatus xRxDoneFlag = S_RESET;
+volatile SpiritFlagStatus xRxTimeOutFlag = S_SET;
+volatile bool waitflag = BOOL_CLR;
+
 uint8_t spsgrf_buffer[SPSGRF_BUFFER_SIZE];
 
 SPI_HandleTypeDef spi3;
@@ -176,82 +179,134 @@ int main(void)
     while (1) {
         button_press();
 
-        // Tx data every 10ms and if last Tx is sent
-        if (HAL_GetTick() - last_tx_tick >= 10 && xTxDoneFlag == S_SET) {
-            if (is_drone == BOOL_SET) {
+        // read data if DRDY triggered and if it is a drone
+        if (is_drone == BOOL_SET) {
+            read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
+            read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
+            read_ready_pressure(&pressure_data, &pressure_thres_flag);
+            read_ready_mag(mag_data, &mag_thres_flag);
+        }
+
+        if (is_drone == BOOL_SET) {
+            // Drone will keep trying to receive
+            // Once received, store RxFIFO into buffer and trasmit once, and go back to receiving
+            // The only way to trasmit is to first receive something
+
+            if ((xTxDoneFlag == S_SET || xRxTimeOutFlag == S_SET) && waitflag == BOOL_CLR) {
+                if (xTxDoneFlag == S_SET) {
+                    sprintf(uart_buffer, "Drone Sent\r\n");
+                    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                } 
+                
+                if(xRxTimeOutFlag == S_SET) {
+                    sprintf(uart_buffer, "Drone Receive Failed\r\n");
+                    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                }
+
+                xTxDoneFlag = S_RESET;
+                xRxDoneFlag = S_RESET;
+                xRxTimeOutFlag = S_RESET;
+                waitflag = BOOL_SET;
+                SPSGRF_StartRx();
+
+                sprintf(uart_buffer, "Drone Receiving\r\n");
+                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+            }
+                    
+            if (xRxDoneFlag == S_SET && waitflag == BOOL_CLR) {
+                // read Rx FIFO
+                uint8_t rxLen = SPSGRF_GetRxData(spsgrf_buffer);
+
+                sprintf(uart_buffer, "Drone Received Success\r\n");
+                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_buffer, strlen(spsgrf_buffer), 0xFFFF);
+                sprintf(uart_buffer, "\r\n");
+                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                
+                // update drone state based on station request
+                chg_to_state = spsgrf_buffer[0] & STATE_MSK;
+
+                chg_to_standby = chg_to_state == STANDBY_MODE && state != STANDBY_MODE ? BOOL_SET : BOOL_CLR;
+                chg_to_battle = chg_to_state == BATTLE_NO_LAST_OF_EE2028_MODE && state != BATTLE_NO_LAST_OF_EE2028_MODE ? BOOL_SET : BOOL_CLR;
+
+                // flag charge to charge if station request
+                charge_flag = spsgrf_buffer[0] & CHARGE_REQ_MSK;
+
                 // drone will send back telem and status
                 uint8_t status[STATUS_NBYTES];
 
                 status[0] = ((gun_charge & 0x0F) << CHARGE_POS) | ((state & 0x0F) << STATE_POS);
                 status[1] = ((((uint8_t)pressure_thres_flag) & 0x01) << P_TH_POS) | ((((uint8_t)temp_thres_flag) & 0x01) << T_TH_POS) | ((((uint8_t)humidity_thres_flag) & 0x01) << H_TH_POS) | ((((uint8_t)acc_thres_flag) & 0x01) << A_TH_POS) | ((((uint8_t)gyro_thres_flag) & 0x01) << G_TH_POS) | ((((uint8_t)mag_thres_flag) & 0x01) << M_TH_POS);
 
-                memcpy(spsgrf_buffer, &pressure_data, sizeof(PRESSURE_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES), &temp_data, sizeof(TEMP_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES), &humidity_data, sizeof(HUMIDITY_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), accel_data, sizeof(ACCEL_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), gyro_data, sizeof(GYRO_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), mag_data, sizeof(MAG_NBYTES));
-                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), &status, sizeof(STATUS_NBYTES));
+                memcpy(spsgrf_buffer, &pressure_data, PRESSURE_NBYTES);
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES), &temp_data, TEMP_NBYTES);
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES), &humidity_data, HUMIDITY_NBYTES);
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), accel_data, ACCEL_NBYTES);
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), gyro_data, GYRO_NBYTES);
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), mag_data, MAG_NBYTES);
+                memcpy((spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), &status, STATUS_NBYTES);
 
-            } else {
-                // station will send change of state request, charge request
-                spsgrf_buffer[0] = ((((uint8_t)charge_flag) & 0x01) << CHARGE_POS) | ((chg_to_state & STATE_MSK) << STATE_POS);
+                xRxDoneFlag = S_RESET;
+                xTxDoneFlag = S_RESET;
+                waitflag = BOOL_SET;
+                SPSGRF_StartTx(spsgrf_buffer, strlen(spsgrf_buffer));
+
+                sprintf(uart_buffer, "Drone Sending\r\n");
+                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_buffer, strlen(spsgrf_buffer), 0xFFFF);
+                sprintf(uart_buffer, "\r\n");
+                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
             }
 
+        } else {
+            // Station will keep transmitting and wait for received
+            // If received or Rx timeout, will go back to trasmit
+            // if received done, read fifo
 
-            xTxDoneFlag = S_RESET;
-            // SpiritSpiCommandStrobes(COMMAND_SABORT); 
-            SPSGRF_StartTx(spsgrf_buffer, strlen(spsgrf_buffer));
-            last_tx_tick = HAL_GetTick();
-        }
-
-        if (is_drone == BOOL_SET) {
-            // read data if DRDY triggered if it is a drone
-            read_ready_acc_gyro_d6d(accel_data, gyro_data, &d6d_data, &acc_thres_flag, &gyro_thres_flag);
-            read_ready_hum_temp(&humidity_data, &temp_data, &humidity_thres_flag, &temp_thres_flag, h0_lsb, h1_lsb, h0_rh, h1_rh, t0_lsb, t1_lsb, t0_degc, t1_degc);
-            read_ready_pressure(&pressure_data, &pressure_thres_flag);
-            read_ready_mag(mag_data, &mag_thres_flag);
-
-            // read data from station if it is a drone and Rx data is ready
-            if (/*HAL_GetTick() - last_rx_tick && */xRxDoneFlag == S_SET) {
-                xRxDoneFlag = S_RESET;
-                // SpiritSpiCommandStrobes(COMMAND_SABORT); 
-                SPSGRF_StartRx();
-                uint8_t rxLen = SPSGRF_GetRxData(spsgrf_buffer);
-
-                // double checks the length just in case
-                if (rxLen == CONTORL_NBYTES) {
-                    // update drone state based on station request
-                    chg_to_state = spsgrf_buffer[0] & STATE_MSK;
-
-                    chg_to_standby = chg_to_state == STANDBY_MODE && state != STANDBY_MODE ? BOOL_SET : BOOL_CLR;
-                    chg_to_battle = chg_to_state == BATTLE_NO_LAST_OF_EE2028_MODE && state != BATTLE_NO_LAST_OF_EE2028_MODE ? BOOL_SET : BOOL_CLR;
-
-                    // flag charge to charge if station request
-                    charge_flag = spsgrf_buffer[0] & CHARGE_REQ_MSK;
+            if ((xRxDoneFlag == S_SET || xRxTimeOutFlag == S_SET) && waitflag == BOOL_CLR) {
+                if (xRxDoneFlag == S_SET) {
+                    sprintf(uart_buffer, "Station Received Success\r\n");
+                    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                } 
+                
+                if(xRxTimeOutFlag == S_SET) {
+                    sprintf(uart_buffer, "Station Receive Failed\r\n");
+                    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
                 }
 
-//                last_rx_tick = HAL_GetTick();
-            }
-        } else {
-            // read data from drone if it is a station and Rx data is ready
-            if (/*HAL_GetTick() - last_rx_tick && */xRxDoneFlag == S_SET) {
-                xRxDoneFlag = S_RESET;
-                // SpiritSpiCommandStrobes(COMMAND_SABORT); 
-                SPSGRF_StartRx();
-                uint8_t rxLen = SPSGRF_GetRxData(spsgrf_buffer);
+                // station will send change of state request, charge request
+                spsgrf_buffer[0] = ((((uint8_t)charge_flag) & 0x01) << CHARGE_POS) | ((chg_to_state & STATE_MSK) << STATE_POS);
 
-                uint8_t status[STATUS_NBYTES];
+                xRxTimeOutFlag = S_RESET;
+                xTxDoneFlag = S_RESET;
+                waitflag = BOOL_SET;
+                SPSGRF_StartTx(spsgrf_buffer, strlen(spsgrf_buffer));
 
-                // double checks the length just in case
-                if (rxLen == TELEM_NBYTES) {
-                    memcpy(&pressure_data, spsgrf_buffer, sizeof(PRESSURE_NBYTES));
-                    memcpy(&temp_data, (spsgrf_buffer + PRESSURE_NBYTES), sizeof(TEMP_NBYTES));
-                    memcpy(&humidity_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES), sizeof(HUMIDITY_NBYTES));
-                    memcpy(accel_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), sizeof(ACCEL_NBYTES));
-                    memcpy(gyro_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), sizeof(GYRO_NBYTES));
-                    memcpy(mag_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), sizeof(MAG_NBYTES));
-                    memcpy(&status, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), sizeof(STATUS_NBYTES));
+                sprintf(uart_buffer, "Station Sending\r\n");
+                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+                HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_buffer, strlen(spsgrf_buffer), 0xFFFF);
+                sprintf(uart_buffer, "\r\n");
+                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+
+                // read data from drone if Rx data is ready
+                if (xRxDoneFlag == S_SET) {
+                    xRxDoneFlag = S_RESET;
+
+                    uint8_t rxLen = SPSGRF_GetRxData(spsgrf_buffer);
+
+                    uint8_t status[STATUS_NBYTES];
+
+                    memcpy(&pressure_data, spsgrf_buffer, PRESSURE_NBYTES);
+                    memcpy(&temp_data, (spsgrf_buffer + PRESSURE_NBYTES), TEMP_NBYTES);
+                    memcpy(&humidity_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES), HUMIDITY_NBYTES);
+                    memcpy(accel_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES), ACCEL_NBYTES);
+                    memcpy(gyro_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES), GYRO_NBYTES);
+                    memcpy(mag_data, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES), MAG_NBYTES);
+                    memcpy(&status, (spsgrf_buffer + PRESSURE_NBYTES + TEMP_NBYTES + HUMIDITY_NBYTES + ACCEL_NBYTES + GYRO_NBYTES + MAG_NBYTES), STATUS_NBYTES);
+
+                    HAL_UART_Transmit(&huart1, (uint8_t*)spsgrf_buffer, strlen(spsgrf_buffer), 0xFFFF);
+                    sprintf(uart_buffer, "\r\n");
+                    HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
 
                     state = status[0] & STATE_MSK;
                     gun_charge = status[0] & CHARGES_MSK;
@@ -262,32 +317,21 @@ int main(void)
                     gyro_thres_flag = status[1] & G_TH_MSK;
                     mag_thres_flag = status[1] & M_TH_MSK;
                 }
+            }
 
-//                last_rx_tick = HAL_GetTick();
+            if (xTxDoneFlag == S_SET && waitflag == BOOL_CLR) {
+                sprintf(uart_buffer, "Station Sent\r\n");
+                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
+
+                xTxDoneFlag = S_RESET;
+                xRxDoneFlag = S_RESET;
+                waitflag = BOOL_SET;
+                SPSGRF_StartRx();
+
+                sprintf(uart_buffer, "Station Receiving\r\n");
+                HAL_UART_Transmit(&huart1, (uint8_t*)uart_buffer, strlen(uart_buffer), 0xFFFF);
             }
         }
-
-        // // takes care of latching INT pins, when the ISR ran during reading and got cleared
-        // if (HAL_GetTick() - latching_check_tick >= 1000) {
-        //     if (HAL_GPIO_ReadPin(LPS22HB_INT_DRDY_EXTI0_GPIO_Port, LPS22HB_INT_DRDY_EXTI0_Pin) == GPIO_PIN_SET) {
-        //         press_ready = BOOL_SET;
-        //     }
-
-        //     if (HAL_GPIO_ReadPin(HTS221_DRDY_EXTI15_GPIO_Port, HTS221_DRDY_EXTI15_Pin) == GPIO_PIN_SET) {
-        //         hum_temp_ready = BOOL_SET;
-        //     }
-
-        //     if (HAL_GPIO_ReadPin(LIS3MDL_DRDY_EXTI8_GPIO_Port, LIS3MDL_DRDY_EXTI8_Pin) == GPIO_PIN_SET) {
-        //         mag_ready = BOOL_SET;
-        //     }
-
-        //     if (HAL_GPIO_ReadPin(SPSGRF_915_GPIO3_EXTI5_GPIO_Port, SPSGRF_915_GPIO3_EXTI5_Pin) == GPIO_PIN_RESET) {
-		// 		xTxDoneFlag = S_SET;
-		// 		xRxDoneFlag = S_SET;
-		// 	}
-
-        //     latching_check_tick = HAL_GetTick();
-        // }
 
         switch (state) {
         case STANDBY_MODE:
@@ -370,6 +414,11 @@ static void standby_mode(uint8_t* p_state)
         gyro_thres_flag = 0;
         mag_thres_flag = 0;
         chg_to_state = STANDBY_MODE;
+
+        xTxDoneFlag = S_RESET;
+        xRxDoneFlag = S_RESET;
+        xRxTimeOutFlag = S_SET;
+        waitflag = BOOL_CLR;
 
         // print out status
         if (is_drone == BOOL_SET) {
@@ -680,12 +729,23 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         SpiritIrqGetStatus(&xIrqStatus);
         if (xIrqStatus.IRQ_TX_DATA_SENT) {
             xTxDoneFlag = S_SET;
+            waitflag = BOOL_CLR;
         }
+
         if (xIrqStatus.IRQ_RX_DATA_READY) {
             xRxDoneFlag = S_SET;
+            waitflag = BOOL_CLR;
         }
-        if (xIrqStatus.IRQ_RX_DATA_DISC || xIrqStatus.IRQ_RX_TIMEOUT) {
-            SpiritCmdStrobeRx();
+
+        // // discard due to CRC/Address filtered but not Rx timeout
+        // if (xIrqStatus.IRQ_RX_DATA_DISC && !xIrqStatus.IRQ_RX_TIMEOUT) {
+        //     SpiritCmdStrobeRx();
+        // }
+
+        // discard due Rx timeout
+        if (xIrqStatus.IRQ_RX_TIMEOUT) {
+            xRxTimeOutFlag = S_SET;
+            waitflag = BOOL_CLR;
         }
     }
 }
